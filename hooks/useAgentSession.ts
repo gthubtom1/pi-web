@@ -1055,6 +1055,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current!.ensureConnected(sid)
   ), []);
 
+  /**
+   * Wait for the event stream, but never let it block a message.
+   *
+   * The stream is the live view of a run, not the run itself: `POST /api/agent/:id`
+   * starts it either way, and the UI reconciles through state polling and the
+   * context reload when the turn ends. A phone on a network that drops long-lived
+   * streams (some carriers) used to get "Timed out starting the agent session" and
+   * the message never left the composer — it now sends, and the reply appears when
+   * the turn finishes.
+   */
+  const connectEventsForSend = useCallback(async (sid: string) => {
+    try {
+      await ensureEventsConnected(sid);
+    } catch (error) {
+      console.warn("Event stream not ready; sending the message anyway:", error);
+    }
+  }, [ensureEventsConnected]);
+
   const maintainEventsConnected = useCallback((sid: string) => {
     eventConnectionRef.current!.maintain(sid);
   }, []);
@@ -1819,11 +1837,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Switching sessions unmounts this composer and closes its stream. The
         // prompt still goes out, so the new session runs and gets its sidebar
         // row instead of losing the submitted text (#1146).
-        if (sessionHookMountedRef.current) {
-          await ensureEventsConnected(sid).catch((error) => {
-            if (sessionHookMountedRef.current) throw error;
-          });
-        }
+        if (sessionHookMountedRef.current) await connectEventsForSend(sid);
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
@@ -1833,7 +1847,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
-        await ensureEventsConnected(session.id);
+        await connectEventsForSend(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
@@ -1879,7 +1893,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, connectEventsForSend, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, dispatch, reconcileAgentState, restoreSubmission, editEntryId, setEdit]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;
