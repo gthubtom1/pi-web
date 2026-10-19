@@ -2,6 +2,13 @@
 
 ## Pairing, per entry (`lib/remote-pairing.ts`)
 
+Three doors, three credentials, and `scopeForHost()` is what decides which one a request used: the
+tunnel's own hostname → `public`, a 100.64/10 (tailnet) address → `tailscale`, anything else →
+`lan`. The tailnet getting its own scope is deliberate — a device on the tailnet must not need the
+code of the house's Wi-Fi, and revoking one door must not touch the others. A pairing file written
+before that scope existed is migrated once on read (the generated tailscale credential is written
+back; otherwise every read would hand out a different code).
+
 - Local access needs nothing: a loopback `Host` (`127.0.0.0/8`, `localhost`, `::1` —
   `isLoopbackHostHeader()`) skips auth, and the CLI opens exactly that URL (Next's
   `Network: http://0.0.0.0:…` line is a bind address; browsers refuse it and a proxy

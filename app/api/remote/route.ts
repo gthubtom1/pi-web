@@ -41,9 +41,15 @@ function pairingView(agentDir?: string) {
   // The secret is included because the panel builds the QR from it; it is the same
   // plaintext credential the file holds, shown only after the panel is reached.
   const state = readRemotePairing(agentDir);
+  const view = (credential: { enabled: boolean; code: string; secret: string }) => ({
+    enabled: credential.enabled,
+    code: credential.code,
+    secret: credential.secret,
+  });
   return {
-    lan: { enabled: state.lan.enabled, code: state.lan.code, secret: state.lan.secret },
-    public: { enabled: state.public.enabled, code: state.public.code, secret: state.public.secret },
+    lan: view(state.lan),
+    public: view(state.public),
+    tailscale: view(state.tailscale),
   };
 }
 
@@ -114,8 +120,15 @@ export async function POST(request: Request) {
 
   switch (action) {
     case "pairing-code": {
-      const scope: RemoteScope | null = body?.scope === "lan" ? "lan" : body?.scope === "public" ? "public" : null;
-      if (!scope) return refusal(400, "scope must be \"lan\" or \"public\"");
+      // Three doors, three codes: the LAN, the public tunnel and the tailnet.
+      const scope: RemoteScope | null = body?.scope === "lan"
+        ? "lan"
+        : body?.scope === "public"
+          ? "public"
+          : body?.scope === "tailscale"
+            ? "tailscale"
+            : null;
+      if (!scope) return refusal(400, "scope must be \"lan\", \"public\" or \"tailscale\"");
       const mode = typeof body?.mode === "string" ? body.mode : "";
       if (mode === "toggle") {
         if (typeof body?.enabled !== "boolean") return refusal(400, "enabled must be a boolean");

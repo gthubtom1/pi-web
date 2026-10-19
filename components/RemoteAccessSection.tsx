@@ -36,11 +36,11 @@ interface RemoteInfo {
   tailscale: RemoteAddress[];
   tunnel: TunnelState;
   tunnelConfig: TunnelConfigInfo;
-  pairing: { lan: PairingScope; public: PairingScope };
+  pairing: { lan: PairingScope; public: PairingScope; tailscale: PairingScope };
   passwordEnabled: boolean;
   authSource: "env" | "env-disabled" | "generated" | "disabled";
 }
-type Scope = "lan" | "public";
+type Scope = "lan" | "public" | "tailscale";
 interface CheckResult {
   ok: boolean;
   status?: number;
@@ -245,6 +245,8 @@ export function RemoteAccessSection() {
   const mode = modeDraft ?? config?.mode ?? "quick";
   const lanOrigin = info && info.lan[0] ? `http://${info.lan[0].address}:${info.port}/` : "";
   const tunnelOrigin = tunnel?.status === "running" && tunnel.url ? `${tunnel.url}/` : "";
+  // The tailnet address is its own door (its own code and QR), never the LAN one.
+  const tailscaleOrigin = info && info.tailscale[0] ? `http://${info.tailscale[0].address}:${info.port}/` : "";
   const localOrigin = info ? `http://127.0.0.1:${info.port}/` : "";
 
   /**
@@ -365,7 +367,31 @@ export function RemoteAccessSection() {
               <p style={hintStyle}>{t("remote.noChannel")}</p>
             )}
 
-            {/* Entry 2: public tunnel */}
+            {/* Entry 2: the tailnet — its own code and QR, any network */}
+            <h4 className="settings-general-heading" style={{ fontSize: 13, marginTop: 22 }}>{t("remote.tailscaleHeading")}</h4>
+            <p style={hintStyle}>{t("remote.tailscaleIntro")}</p>
+            {tailscaleOrigin ? (
+              <>
+                <div style={rowStyle}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={labelStyle}>{t("remote.lanUrlLabel")}</div>
+                    <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>{tailscaleOrigin}</div>
+                    <div style={hintStyle}>{t("remote.tailscaleAddressHint")}</div>
+                  </div>
+                  <ConfigButton variant="ghost" size="small" onClick={() => void copyText(tailscaleOrigin, "tailscale:origin")}>
+                    {copied === "tailscale:origin" ? t("remote.copied") : t("remote.copyUrl")}
+                  </ConfigButton>
+                </div>
+                {pairingBlock("tailscale", tailscaleOrigin, "remote.codeHintTailscale")}
+                {!info.pairing.tailscale.enabled ? (
+                  <ConfigNotice>{t("remote.tailscaleCodeOffNotice")}</ConfigNotice>
+                ) : null}
+              </>
+            ) : (
+              <p style={hintStyle}>{t("remote.noTailscale")}</p>
+            )}
+
+            {/* Entry 3: public tunnel */}
             <h4 className="settings-general-heading" style={{ fontSize: 13, marginTop: 22 }}>{t("remote.tunnelLabel")}</h4>
 
             {/* The address a phone should open: the panel's own, never the history's. */}
