@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
     // are truncated and fail with "Failed to parse body as FormData."
     proxyClientMaxBodySize: "128mb",
   },
+  // Next's compression middleware gzips responses with a small internal buffer. A
+  // Server-Sent Events stream (the live transcript) is chunked and tiny per event,
+  // so gzip can hold events back until a block fills or the stream ends — which
+  // looks exactly like "the phone shows nothing until the turn is over". Static
+  // assets and JSON pay a little bandwidth for it; a live conversation is worth more.
+  compress: false,
   // next/image is only used for the static logo, so the /_next/image optimizer
   // (and its sharp/libheif attack surface, see GHSA-2xp9-vwfh-vxw4) is not needed.
   images: { unoptimized: true },
