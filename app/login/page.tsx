@@ -108,6 +108,7 @@ function LoginForm() {
             </button>
           </div>
           <p className="web-login-error" role="alert" aria-live="polite">{error}</p>
+          <p className="web-login-hint">{t("auth.remoteHint")}</p>
         </form>
       </div>
     </main>

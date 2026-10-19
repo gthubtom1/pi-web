@@ -7,6 +7,7 @@ import {
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
+  isLoopbackHostHeader,
 } from "@/lib/request-security";
 import {
   isValidWebSessionToken,
@@ -41,7 +42,12 @@ export function proxy(request: NextRequest) {
   }
 
   const password = getWebPassword();
-  if (!isWebPasswordEnabled(password)) {
+  // On this machine there is nothing to protect against: a browser that reaches
+  // 127.0.0.1/localhost is the person sitting at the computer. Only other devices
+  // (LAN, Tailscale, the public tunnel) have to sign in, so `pi-web` opens and
+  // works locally without anyone chasing a password.
+  const localBrowser = isLoopbackHostHeader(request.headers.get("host"));
+  if (!isWebPasswordEnabled(password) || localBrowser) {
     if (request.nextUrl.pathname === "/login") {
       return NextResponse.redirect(new URL("/", request.url));
     }

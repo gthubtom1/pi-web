@@ -45,6 +45,30 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost");
 }
 
+/** 127.0.0.0/8, ::1, localhost: the addresses a browser uses on this machine only. */
+function isLoopbackAddress(hostname: string): boolean {
+  if (isLoopbackHostname(hostname)) return true;
+  if (hostname === "::1") return true;
+  const octets = hostname.split(".");
+  if (octets.length !== 4 || octets[0] !== "127") return false;
+  return octets.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+/**
+ * Whether a request reached us through a loopback name. The auth layer uses this
+ * to keep the local browser free of the remote password.
+ *
+ * The Host header is the signal a *browser* cannot fake: opening 127.0.0.1 from
+ * another machine reaches that machine's own loopback, so a remote browser always
+ * presents its real name. A script on the LAN can send `Host: 127.0.0.1` and be
+ * let through — that is why `web-access` documents binding 127.0.0.1 (with a
+ * tunnel for the phone) as the strict option.
+ */
+export function isLoopbackHostHeader(host: string | null): boolean {
+  const hostname = host ? hostnameFromAuthority(host) : null;
+  return hostname !== null && isLoopbackAddress(hostname);
+}
+
 function configuredHostnamesFromEnvironment(): string[] {
   return [
     process.env.PI_WEB_HOSTNAME,

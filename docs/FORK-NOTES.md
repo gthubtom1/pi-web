@@ -48,8 +48,9 @@
 ### 2.2 远程访问（手机 / 二维码 / 公网隧道）
 > 设计笔记：[`docs/agents/remote-access.md`](agents/remote-access.md)
 
-- 默认绑 `0.0.0.0`，**强制密码**：首启生成强随机密码，打印在控制台并存
-  `<agentDir>/pi-web-secret`（源码里没有任何默认密码）。
+- 默认绑 `0.0.0.0`；**本机免密**（`Host` 是 `127.0.0.1`/`localhost` 时直接放行，CLI 也打开这个地址），
+  **其他设备要密码**：首启生成强随机密码，打印在控制台并存 `<agentDir>/pi-web-secret`
+  （源码里没有任何默认密码），或在设置里关掉/自设。
 - 设置 › **远程访问**（独立 Tab）：局域网 / Tailscale 地址、一次性扫码登录（2 分钟 token，
   二维码里不含密码）、Cloudflare quick tunnel（自动下载 cloudflared、自动探测本机代理、可卸载）、
   「登录需要密码」开关（Windows 关鉴权只能靠它，写 `<agentDir>/pi-web-auth.json`）。

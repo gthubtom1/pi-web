@@ -119,9 +119,9 @@ function getAgentDir() {
 function describePassword() {
   if (process.env.PI_WEB_PASSWORD !== undefined) {
     if (process.env.PI_WEB_PASSWORD === "") {
-      return { kind: "disabled", lines: ["Authentication is disabled (PI_WEB_PASSWORD is empty)."] };
+      return { kind: "disabled", lines: ["Remote access is open (PI_WEB_PASSWORD is empty): any device may use the agent."] };
     }
-    return { kind: "env", lines: ["Password: from PI_WEB_PASSWORD (not echoed)."] };
+    return { kind: "env", lines: ["Remote password: from PI_WEB_PASSWORD (not echoed)."] };
   }
   const dir = getAgentDir();
   const file = path.join(dir, "pi-web-secret");
@@ -147,10 +147,21 @@ function describePassword() {
       fs.writeFileSync(file, `${secret}\n`, { encoding: "utf-8", mode: 0o600 });
       try { fs.chmodSync(file, 0o600); } catch { /* Windows: profile ACLs apply */ }
     }
-    return { kind: "generated", lines: [`Password: ${secret}`, `  stored in ${file} (delete it to rotate)`] };
+    return {
+      kind: "generated",
+      lines: [
+        `Remote password: ${secret}`,
+        `  stored in ${file} (delete it to rotate)`,
+        "  Turn it off in Settings › Remote access if you only use this machine.",
+      ],
+    };
   } catch (error) {
     return { kind: "error", lines: ["Could not read or create the login secret: " + (error instanceof Error ? error.message : String(error))] };
   }
+}
+
+function handlesWildcardHost(hostname) {
+  return hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]";
 }
 
 function startServer({ port, hostname, openBrowser }) {
@@ -231,7 +242,9 @@ function startServer({ port, hostname, openBrowser }) {
   });
 
   let serverReady = false;
-  const url = `http://${hostname}:${port}`;
+  // A wildcard bind is not a browsable address: `http://0.0.0.0:30141` is refused by
+  // browsers and answers 502 through a proxy. Open (and print) the loopback name.
+  const url = getOpenUrl(hostname, port);
 
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString();
@@ -240,12 +253,18 @@ function startServer({ port, hostname, openBrowser }) {
       serverReady = true;
       if (port !== "0") runRecord.markReady();
       const nl = String.fromCharCode(10);
+      // 127.0.0.1, not the wildcard: `Network: http://0.0.0.0:...` (Next's own line)
+      // cannot be opened in a browser — through a proxy it answers 502.
       const auth = describePassword();
-      if (hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]") {
+      process.stdout.write(nl + "  On this machine (no password needed):" + nl + "    " + url + nl);
+      if (handlesWildcardHost(hostname)) {
+        process.stdout.write("    (Next's \"Network: http://0.0.0.0:...\" line above is the bind address, not a link: browsers refuse it and a proxy answers 502.)" + nl);
+      }
+      if (handlesWildcardHost(hostname)) {
         const lanUrls = getLanUrls(port);
         if (lanUrls.length > 0) {
           const lines = lanUrls.map((u) => "    " + u).join(nl);
-          process.stdout.write(nl + "  On your network (phones, other devices):" + nl + lines + nl);
+          process.stdout.write(nl + "  From a phone or another device (password needed):" + nl + lines + nl);
         }
       }
       process.stdout.write(nl + "  " + auth.lines.join(nl + "  ") + nl + nl);

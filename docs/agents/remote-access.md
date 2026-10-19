@@ -2,28 +2,30 @@
 
 ## The password (`lib/web-secret.ts`, `bin/pi-web.js`)
 
-- Precedence: `PI_WEB_PASSWORD` non-empty → that password; `PI_WEB_PASSWORD` empty → auth off; otherwise
-  `<agentDir>/pi-web-auth.json` says whether a password is required (Settings › Remote access switch,
-  default on, corrupt file → on) and a random 32-char secret is generated once into
-  `<agentDir>/pi-web-secret` (mode 0600, best-effort on Windows where the profile ACL applies). There is
-  deliberately **no password in the source**; the old hard-coded default was readable by anyone with the
-  repository.
-- The switch exists because Windows cannot set an empty environment variable (`set X=` deletes it), so
-  "empty `PI_WEB_PASSWORD` disables auth" only works on POSIX. Turning auth off from the UI still sends
-  the same cookie-less traffic; the tunnel and pairing stay disabled without a password.
-- `bin/pi-web.js` resolves the same secret before opening the browser and prints it at startup
-  (`describePassword()`), plus the LAN URLs when it binds `0.0.0.0`. Without that print, first-run
-  login is a locked door: `/` redirects to `/login` and nothing tells the user the password.
-- Windows cannot set an empty environment variable (`set X=` deletes it), so the documented "empty
-  `PI_WEB_PASSWORD` disables auth" escape hatch only exists on POSIX; the UI switch covers Windows.
-- Rotation = delete the file (a new one is generated). `rotateStoredSecret()` exists for a future
+- **The local browser never signs in.** `proxy.ts` treats a loopback `Host`
+  (`127.0.0.0/8`, `localhost`, `::1`) as the person at the keyboard and skips auth
+  (`isLoopbackHostHeader()`, lib/request-security.ts). The CLI opens exactly that
+  URL — Next's own `Network: http://0.0.0.0:…` line is not browsable (browsers
+  refuse it; through a proxy it answers 502), which is why `pi-web` used to look
+  broken while it was running fine.
+- Everything else — LAN, Tailscale, the tunnel — needs the password. Precedence:
+  `PI_WEB_PASSWORD` non-empty → that password; `PI_WEB_PASSWORD` empty → remote auth
+  off; otherwise `<agentDir>/pi-web-auth.json` says whether a password is required
+  (Settings › Remote access switch, default on, corrupt file → on) and a random
+  32-char secret is generated once into `<agentDir>/pi-web-secret` (mode 0600). There
+  is deliberately **no password in the source**.
+- The switch exists because Windows cannot set an empty environment variable
+  (`set X=` deletes it), so "empty `PI_WEB_PASSWORD` disables auth" only works on
+  POSIX. Turning it off opens the port to every device that can reach it.
+- **The loopback exemption trusts `Host`, which a browser cannot forge but a script
+  can.** On an untrusted network, bind loopback only (`--hostname 127.0.0.1`) and
+  reach the phone through the tunnel or Tailscale; the tunnel still works because
+  cloudflared connects to 127.0.0.1 and its hostname is not loopback, so it needs
+  the password.
+- `bin/pi-web.js` resolves the same secret before opening the browser and prints it
+  at startup as the *remote* password, next to "On this machine (no password
+  needed)". Rotation = delete the file. `rotateStoredSecret()` exists for a future
   settings button; no route uses it yet.
-
-## Where it lives in Settings
-
-`remote` is a settings section of its own (`components/SettingsPanel.tsx`, `lib/settings-navigation.ts`),
-right after General: it is about this machine and its access, not about the agent. `RemoteAccessSection`
-renders a `.settings-general` page with the auth switch, the channel picker + QR, and the tunnel rows.
 
 ## Phone pairing (`lib/pairing.ts`, `POST /api/web-auth/pair`, `app/login/page.tsx`)
 

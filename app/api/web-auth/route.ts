@@ -5,7 +5,7 @@ import {
   recordAuthSuccess,
   retryAfterSeconds,
 } from "@/lib/auth-throttle";
-import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { hasJsonContentType, isApiRequestAllowed, isLoopbackHostHeader } from "@/lib/request-security";
 import {
   createWebSessionToken,
   isValidBasicAuthorization,
@@ -56,7 +56,9 @@ export async function GET(request: NextRequest) {
 
   const password = getWebPassword();
   const enabled = isWebPasswordEnabled(password);
+  // The local browser never signs in (see proxy.ts), so it reports as authenticated.
   const authenticated = !enabled
+    || isLoopbackHostHeader(request.headers.get("host"))
     || isValidBasicAuthorization(request.headers.get("authorization"), password)
     || isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, password);
   return NextResponse.json(

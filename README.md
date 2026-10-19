@@ -65,7 +65,7 @@ For port and hostname, command-line options override the corresponding environme
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
-| `PI_WEB_PASSWORD` | Browser password login (API clients: Basic Auth, username `pi`). Overrides the generated password; set it to an empty value to disable authentication entirely (POSIX; on Windows use Settings › Remote access) | A strong random password generated on first run, printed at startup and stored in `~/.pi/agent/pi-web-secret` |
+| `PI_WEB_PASSWORD` | Password for **other devices** (this machine never asks); API clients may use Basic Auth, username `pi`. Empty = no remote password (POSIX; on Windows use Settings › Remote access) | A strong random password generated on first run, printed at startup and stored in `~/.pi/agent/pi-web-secret` |
 | `PI_WEB_IDLE_TIMEOUT_MS` | Session idle timeout in milliseconds, up to `2147483647`; `0` disables idle shutdown; invalid or out-of-range values use the default | `600000` (10 min) |
 | `PI_WEB_SHUTDOWN_DEADLINE_MS` | How long extensions get to handle `session_shutdown` before a closing session is disposed anyway, in milliseconds up to `2147483647`; `0`, invalid or out-of-range values use the default | `5000` (5 s) |
 
@@ -80,17 +80,23 @@ pi-web -p 8080 --no-open   # binds 0.0.0.0; add -H 127.0.0.1 to keep it local-on
 
 ### Remote Access
 
-By default Pi Web binds `0.0.0.0` **and requires a password**, so an agent that can execute high-privilege actions is not exposed bare to your network. There is no password in the source: on first run Pi Web generates a strong random one, prints it at startup, and stores it in `~/.pi/agent/pi-web-secret` (mode `0600`). Delete that file to get a new one. To choose your own, set `PI_WEB_PASSWORD`:
+**On this machine there is no password.** Pi Web binds `0.0.0.0` so a phone can reach it, but the browser on the machine itself (`http://127.0.0.1:30141` or `localhost`) is always let in, and the CLI opens exactly that URL — `http://0.0.0.0:30141` is not a browsable address (browsers refuse it; through a proxy it answers 502).
+
+**Other devices need a password.** On first run Pi Web generates a strong random one, prints it at startup and stores it in `~/.pi/agent/pi-web-secret`; there is deliberately no password in the source. Delete that file to get a new one, or set your own:
 
 ```bash
 PI_WEB_PASSWORD='a-long-random-password' pi-web
 ```
 
-An empty `PI_WEB_PASSWORD` disables authentication entirely on POSIX systems; Windows cannot set an empty environment variable, so use **Settings › Remote access › Require a password** there (it writes `~/.pi/agent/pi-web-auth.json`). Only do this on a trusted, isolated machine.
+An empty `PI_WEB_PASSWORD` (POSIX) or **Settings › Remote access › Require a password** (off) disables the remote password entirely — only on a trusted, isolated network: with it off, any device that reaches the port can run commands through the agent. A phone can also skip typing: Settings › Remote access generates a one-time QR code (2 minutes) that signs that device in, and the same panel starts a Cloudflare quick tunnel for access from another network.
 
-**Settings › Remote access** pairs a phone without typing: it lists this machine's LAN addresses (and Tailscale, when installed), and generates a one-time QR code that signs the phone in for about two minutes. The same panel can start a public Cloudflare quick tunnel (`https://<random>.trycloudflare.com`), so a phone on another network needs no app and no account; the tunnel refuses to start unless a password is set. It downloads `cloudflared` on first use (through your `HTTPS_PROXY`, or a detected local proxy) into `~/.pi/agent/pi-web-bin`, and **Uninstall** removes it again.
+The loopback exemption trusts the request's `Host` name, which a browser cannot forge (a remote browser always presents its own address). A script on the LAN could send `Host: 127.0.0.1` and be let in, so on an untrusted network bind only loopback and expose the phone through the tunnel or Tailscale:
 
-Password authentication does not encrypt the connection. A public tunnel is HTTPS, but a LAN address is plain HTTP: do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
+```bash
+pi-web --hostname 127.0.0.1     # LAN off; the tunnel still reaches 127.0.0.1:30141
+```
+
+Password authentication does not encrypt the connection. A public tunnel is HTTPS, but a LAN address is plain HTTP: do not expose Pi Web over plain HTTP to the internet; add a reverse proxy's external hostname to `PI_WEB_ALLOWED_HOSTS` (this allow-list does not change the address Pi Web binds to).
 
 ### HTTP Proxy
 
