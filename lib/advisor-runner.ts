@@ -144,6 +144,15 @@ export async function runAdvisorReview(
   settings: AdvisorSettings,
   signal?: AbortSignal,
 ): Promise<{ notes: AdvisorNote[]; usage?: { input: number; output: number } }> {
+  // The caller's abort is wired before anything is awaited: a review cancelled in
+  // the meantime must not keep running until the timeout.
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) return { notes: [] };
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const agent = (session as unknown as { agent: Agent }).agent;
     const primaryModel = agent.state.model as Model<Api> | undefined;
@@ -161,36 +170,33 @@ export async function runAdvisorReview(
 
     const { context, options } = buildAdvisorRequest(model, transcript);
     const apiKey = await agent.getApiKey?.(model.provider);
-    const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-    const timeout = setTimeout(() => controller.abort(), ADVISOR_TIMEOUT_MS);
+    timeout = setTimeout(() => controller.abort(), ADVISOR_TIMEOUT_MS);
+    // Cancelled while the model was being resolved: do not start a request at all.
+    if (controller.signal.aborted) return { notes: [] };
 
-    try {
-      const stream = await agent.streamFunction(model, normalizeContext(context), {
-        ...options,
-        signal: controller.signal,
-        ...(apiKey ? { apiKey } : {}),
-      });
-      const message = (await stream.result()) as AssistantMessage;
-      if (message.stopReason === "error" || message.stopReason === "aborted") {
-        return { notes: [] };
-      }
-      const text = message.content
-        .filter((block) => block.type === "text")
-        .map((block) => (block as { text: string }).text)
-        .join("\n");
-      const notes = parseAdvisorNotes(text, settings.maxNotes);
-      const usage = message.usage
-        ? { input: message.usage.input, output: message.usage.output }
-        : undefined;
-      return { notes, usage };
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
+    const stream = await agent.streamFunction(model, normalizeContext(context), {
+      ...options,
+      signal: controller.signal,
+      ...(apiKey ? { apiKey } : {}),
+    });
+    const message = (await stream.result()) as AssistantMessage;
+    if (message.stopReason === "error" || message.stopReason === "aborted") {
+      return { notes: [] };
     }
+    const text = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => (block as { text: string }).text)
+      .join("\n");
+    const notes = parseAdvisorNotes(text, settings.maxNotes);
+    const usage = message.usage
+      ? { input: message.usage.input, output: message.usage.output }
+      : undefined;
+    return { notes, usage };
   } catch {
     return { notes: [] };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 

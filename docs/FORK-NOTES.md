@@ -157,6 +157,16 @@ node --experimental-strip-types --test lib/engineered-prompt.test.mjs lib/system
 npm run dev                           # 手工过一遍下面的清单
 ```
 
+**生产构建（部署/打包前）**：`next build --webpack` 在这台 16 GB 的机器上按 Node 默认堆（约 4 GB）
+会 `JavaScript heap out of memory`（与我们的改动无关，上游同理）。用：
+
+```bash
+NODE_OPTIONS=--max-old-space-size=9216 npm run build   # PowerShell: $env:NODE_OPTIONS="--max-old-space-size=9216"
+```
+
+构建成功后再删掉 `.next` 才能回到干净的 `npm run dev`（build 产物会让 dev 图缓存失效）。
+`node bin/pi-web.js` 跑起来时会打印局域网地址与登录密码（已用生产构建实测）。
+
 > **已知的环境性失败**（本机 Windows + Node 24，**与我们改动无关**，干净基线上同样失败）：
 > `hooks/{useAudio,useGroupDrag,useResizablePanel,useSessionUiState,useSidebarMotion,new-session-switch}.test.mjs`
 > 是绝对路径 `import("D:\…")` 在 Windows 上不支持；另有 `lib/http-dispatcher`、

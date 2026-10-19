@@ -84,7 +84,10 @@ function getLanUrls(port) {
     for (const name of Object.keys(nets)) {
       const list = virtualIface.test(name) ? virtual : real;
       for (const net of nets[name] ?? []) {
-        if (net.family === "IPv4" && !net.internal) list.push(`http://${net.address}:${port}`);
+        if (net.family !== "IPv4" || net.internal) continue;
+        // APIPA / link-local is never a phone-reachable address.
+        if (net.address.startsWith("169.254.")) continue;
+        list.push(`http://${net.address}:${port}`);
       }
     }
   } catch {
