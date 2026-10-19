@@ -84,6 +84,10 @@ export function proxy(request: NextRequest) {
       if (request.nextUrl.search) {
         loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
       }
+      // A link that already carries the password (`?pw=`, what the QR encodes) must
+      // reach the login page with it, or the app would ask for it anyway.
+      const linkedPassword = request.nextUrl.searchParams.get("pw");
+      if (linkedPassword) loginUrl.searchParams.set("pw", linkedPassword);
       return NextResponse.redirect(loginUrl);
     }
     return new NextResponse("Authentication required", {

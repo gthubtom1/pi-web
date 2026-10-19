@@ -17,28 +17,47 @@ function LoginForm() {
   const [error, setError] = useState("");
   const pairAttemptedRef = useRef(false);
 
-  // A scanned QR code lands here with ?pair=<token>: redeem it for a session and
-  // continue, so the phone never has to type (or see) the real password.
+  /** The destination without the `pw` secret, so it does not stay in the URL. */
+  const withoutPasswordParam = (destination: string): string => {
+    try {
+      const url = new URL(destination, window.location.origin);
+      url.searchParams.delete("pw");
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return destination;
+    }
+  };
+
+  // Two ways in without typing:
+  //   ?pair=<token>  a one-time code (2 minutes) for a guest or a borrowed phone;
+  //   ?pw=<password> the remote password itself, so a copied link or QR just opens
+  //                  (what DSH does: the link carries it).
+  // Both strip the parameter from the address bar once they are used.
   useEffect(() => {
-    const pairToken = new URLSearchParams(window.location.search).get("pair");
-    if (!pairToken || pairAttemptedRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const pairToken = params.get("pair");
+    const passwordParam = params.get("pw");
+    if ((!pairToken && !passwordParam) || pairAttemptedRef.current) return;
     // The pairing token is single-use, so redeem it exactly once even though
     // React StrictMode runs this effect twice in development.
     pairAttemptedRef.current = true;
     setBusy(true);
     (async () => {
       try {
-        const response = await fetch("/api/web-auth/pair", {
+        const response = await fetch(pairToken ? "/api/web-auth/pair" : "/api/web-auth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: pairToken }),
+          body: JSON.stringify(pairToken ? { token: pairToken } : { password: passwordParam }),
         });
         if (!response.ok) {
           setError(t("auth.pairInvalid"));
           setBusy(false);
           return;
         }
-        window.location.replace(safeDestination());
+        // A password-carrying link signs in and then drops the secret from the
+        // address bar (and from the `next` destination it was folded into).
+        const destination = safeDestination();
+        window.location.replace(pairToken ? destination : withoutPasswordParam(destination));
       } catch {
         setError(t("auth.loginFailed"));
         setBusy(false);

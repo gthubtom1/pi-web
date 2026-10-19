@@ -159,6 +159,30 @@ export function isPasswordFromEnv(env: NodeJS.ProcessEnv = process.env): boolean
   return env.PI_WEB_PASSWORD !== undefined;
 }
 
+/** The password stored in the file (may exist while remote auth is switched off). */
+export function readStoredSecret(options: ResolveSecretOptions = {}): string | null {
+  return readSecretFile(options.agentDir ?? defaultAgentDir());
+}
+
+/**
+ * Replace the stored remote password with `value` and require it again. This is
+ * what Settings › Remote access writes when someone types their own password or
+ * asks for a new random one; it never touches `PI_WEB_PASSWORD`, which still wins.
+ */
+export function setStoredSecret(value: string, options: ResolveSecretOptions = {}): string {
+  const agentDir = options.agentDir ?? defaultAgentDir();
+  const trimmed = value.trim();
+  if (trimmed.length < 6) throw new Error("A remote password needs at least 6 characters.");
+  writeSecretFile(agentDir, trimmed);
+  writeWebAuthSettings({ requirePassword: true }, agentDir);
+  return trimmed;
+}
+
+/** Generate a fresh random remote password, store it and require it again. */
+export function randomizeStoredSecret(options: ResolveSecretOptions = {}): string {
+  return setStoredSecret(generateSecret(), options);
+}
+
 /**
  * Rotate the stored secret: generate a new one, persist it, return it. Callers
  * must be authenticated. Does nothing to the env var (an env password wins, so

@@ -232,8 +232,19 @@ async function runStart(port: number): Promise<void> {
       resolve();
     };
 
+    // Keep cloudflared's own words: when it cannot reach the edge ("Failed to
+    // initialize DNS local resolver", "dial tcp … i/o timeout") that line is the
+    // only useful thing to show, instead of a bare timeout.
+    let lastLine = "";
     const scan = (chunk: Buffer) => {
-      const match = chunk.toString().match(TRYCLOUDFLARE_URL);
+      const text = chunk.toString();
+      for (const rawLine of text.split(String.fromCharCode(10))) {
+        const line = rawLine.endsWith(String.fromCharCode(13)) ? rawLine.slice(0, -1) : rawLine;
+        // Drop ANSI colour codes and other control characters.
+        const trimmed = line.split("").filter((ch) => ch >= " ").join("").trim();
+        if (trimmed) lastLine = trimmed.slice(0, 300);
+      }
+      const match = text.match(TRYCLOUDFLARE_URL);
       if (match) {
         const url = match[0];
         const hostname = new URL(url).hostname;
@@ -241,11 +252,12 @@ async function runStart(port: number): Promise<void> {
         finish({ status: "running", phase: "idle", url, hostname, error: null, startedAt: Date.now() });
       }
     };
+    const withDetail = (message: string) => (lastLine ? `${message} (cloudflared: ${lastLine})` : message);
     child.stdout.on("data", scan);
     child.stderr.on("data", scan);
 
     child.on("error", (error) => {
-      finish({ status: "error", error: error instanceof Error ? error.message : String(error) });
+      finish({ status: "error", error: withDetail(error instanceof Error ? error.message : String(error)) });
     });
     child.on("exit", (code) => {
       const wasRunning = runtime().state.status === "running";
@@ -255,14 +267,14 @@ async function runStart(port: number): Promise<void> {
       if (wasRunning) {
         setState({ status: "stopped", url: null, hostname: null, startedAt: null });
       } else if (!settled) {
-        finish({ status: "error", error: `cloudflared exited with code ${code ?? "unknown"} before a URL was ready.` });
+        finish({ status: "error", error: withDetail(`cloudflared exited with code ${code ?? "unknown"} before a URL was ready.`) });
       }
     });
 
     const timer = setTimeout(() => {
       if (settled) return;
       try { child.kill(); } catch { /* ignore */ }
-      finish({ status: "error", error: "Timed out waiting for the tunnel URL (network may be blocking Cloudflare)." });
+      finish({ status: "error", error: withDetail("Timed out waiting for the tunnel URL (network may be blocking Cloudflare).") });
     }, START_TIMEOUT_MS);
     timer.unref?.();
   });

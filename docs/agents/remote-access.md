@@ -24,8 +24,19 @@
   the password.
 - `bin/pi-web.js` resolves the same secret before opening the browser and prints it
   at startup as the *remote* password, next to "On this machine (no password
-  needed)". Rotation = delete the file. `rotateStoredSecret()` exists for a future
-  settings button; no route uses it yet.
+  needed)".
+- **Settings › Remote access manages it live**: `reveal-password` returns the stored
+  value (never an env-supplied one), `set-password` writes a chosen one (>= 6 chars,
+  and it turns remote auth back on), `randomize-password` stores a fresh 32-char
+  one. The stored secret is read on every request, so a change applies immediately.
+- **The QR and the copied link carry the password**: `<origin>/?pw=<password>`, and
+  `/login` redeems it exactly like the form (`app/login/page.tsx`). That is the DSH
+  behaviour - the link is the key, the phone types nothing. The one-time 2-minute
+  `?pair=` code stays for a borrowed phone. A copied link *is* a credential: do not
+  post it anywhere public.
+- Turning the switch off does not dead-end the panel: the QR/one-time code need a
+  password (the tunnel too - it would otherwise expose the agent to the internet),
+  so the tunnel row offers "Create a password and start" instead of refusing.
 
 ## Phone pairing (`lib/pairing.ts`, `POST /api/web-auth/pair`, `app/login/page.tsx`)
 

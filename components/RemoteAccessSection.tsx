@@ -30,8 +30,13 @@ interface RemoteInfo {
 type Channel = { key: string; kind: "lan" | "tailscale" | "tunnel"; label: string; url: string };
 
 /**
- * Settings › Remote access: how a phone reaches this machine, the one-time QR
- * pairing code, the public tunnel, and whether a password is required at all.
+ * Settings › Remote access.
+ *
+ * The password is for **other devices only** (this machine's browser is let in by
+ * the proxy). It is shown here, can be replaced or randomized, and the QR/link
+ * carries it so a phone opens straight into the app — the DSH behaviour: copy the
+ * link, scan the code, done. The one-time code stays available for a phone you do
+ * not want to keep a password for.
  */
 export function RemoteAccessSection() {
   const { t } = useI18n();
@@ -40,6 +45,11 @@ export function RemoteAccessSection() {
   const [busy, setBusy] = useState<string | null>(null);
   const [channelKey, setChannelKey] = useState<string | null>(null);
   const [pair, setPair] = useState<{ url: string; expiresAt: number } | null>(null);
+  const [remotePassword, setRemotePassword] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [copied, setCopied] = useState<string | null>(null);
+  const [showCustom, setShowCustom] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -51,8 +61,24 @@ export function RemoteAccessSection() {
     }
   }, []);
 
+  const reveal = useCallback(async () => {
+    try {
+      const res = await fetch("/api/remote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reveal-password" }),
+      });
+      if (!res.ok) return;
+      const json = await res.json() as { password: string | null };
+      setRemotePassword(json.password);
+    } catch {
+      // the panel still works without it
+    }
+  }, []);
+
   useEffect(() => {
     void load();
+    void reveal();
     // Poll while the tunnel is starting so the URL appears when it is ready.
     const timer = setInterval(() => {
       setInfo((current) => {
@@ -61,7 +87,7 @@ export function RemoteAccessSection() {
       });
     }, 2000);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [load, reveal]);
 
   // Build the selectable channels from the addresses and tunnel state.
   const channels: Channel[] = [];
@@ -71,20 +97,26 @@ export function RemoteAccessSection() {
     if (info.tunnel.status === "running" && info.tunnel.url) channels.push({ key: "tunnel", kind: "tunnel", label: `${t("remote.public")} · ${info.tunnel.hostname}`, url: `${info.tunnel.url}/` });
   }
   const active = channels.find((c) => c.key === channelKey) ?? channels[0] ?? null;
+  const loginUrl = active && remotePassword ? `${active.url}?pw=${encodeURIComponent(remotePassword)}` : null;
+
+  const post = async (body: Record<string, unknown>) => {
+    const res = await fetch("/api/remote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+    return json as Record<string, unknown>;
+  };
 
   const generatePair = async (target: { url: string }) => {
     setBusy("pair");
     setError(null);
     setPair(null);
     try {
-      const res = await fetch("/api/remote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "pair" }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      setPair({ url: `${target.url}?pair=${json.token}`, expiresAt: json.expiresAt });
+      const json = await post({ action: "pair" });
+      setPair({ url: `${target.url}?pair=${String(json.token)}`, expiresAt: Number(json.expiresAt) });
     } catch (err) {
       setError(String(err));
     } finally {
@@ -97,23 +129,12 @@ export function RemoteAccessSection() {
     setError(null);
     setPair(null);
     try {
-      const res = await fetch("/api/remote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
-      // The delete is retried server-side; if the binary is still there, say so
-      // rather than reporting a clean uninstall that left 53 MB behind.
-      if (action === "tunnel-uninstall" && json?.tunnel?.binaryInstalled !== false) {
+      const json = await post({ action });
+      if (action === "tunnel-uninstall" && (json.tunnel as TunnelState | undefined)?.binaryInstalled !== false) {
         setError(t("remote.tunnelUninstallFailed"));
       }
-      const started = action === "tunnel-start";
       await load();
-      // Starting a public tunnel should land on a scannable QR with no extra
-      // click: wait for the URL, then generate the pairing code for it.
-      if (started) await autoPairTunnel();
+      if (action === "tunnel-start") await autoPairTunnel();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -121,7 +142,24 @@ export function RemoteAccessSection() {
     }
   };
 
-  // Poll the tunnel until it is running, then produce its pairing QR automatically.
+  // A public tunnel without a password would hand the agent to the internet, so the
+  // button makes one first instead of refusing with a dead end.
+  const startTunnelWithPassword = async () => {
+    setBusy("tunnel-start");
+    setError(null);
+    try {
+      const json = await post({ action: "randomize-password" });
+      setRemotePassword(String(json.password));
+      setRevealed(true);
+      await load();
+      await tunnelAction("tunnel-start");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const autoPairTunnel = async () => {
     for (let i = 0; i < 40; i += 1) {
       await new Promise((r) => setTimeout(r, 1500));
@@ -133,7 +171,6 @@ export function RemoteAccessSection() {
       if (next) setInfo(next);
       if (next?.tunnel.status === "running" && next.tunnel.url) {
         setChannelKey("tunnel");
-        await generatePair({ url: `${next.tunnel.url}/` });
         return;
       }
       if (next?.tunnel.status === "error") return;
@@ -145,18 +182,55 @@ export function RemoteAccessSection() {
     setError(null);
     setPair(null);
     try {
-      const res = await fetch("/api/remote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set-password-required", required }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+      await post({ action: "set-password-required", required });
       await load();
     } catch (err) {
       setError(String(err));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const randomize = async () => {
+    setBusy("password");
+    setError(null);
+    try {
+      const json = await post({ action: "randomize-password" });
+      setRemotePassword(String(json.password));
+      setRevealed(true);
+      setShowCustom(false);
+      await load();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveCustom = async () => {
+    setBusy("password");
+    setError(null);
+    try {
+      const json = await post({ action: "set-password", password: draft });
+      setRemotePassword(String(json.password));
+      setRevealed(true);
+      setShowCustom(false);
+      setDraft("");
+      await load();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copyText = async (value: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(key);
+      setTimeout(() => setCopied((current) => (current === key ? null : current)), 1500);
+    } catch {
+      setError(t("remote.copyFailed"));
     }
   };
 
@@ -170,17 +244,22 @@ export function RemoteAccessSection() {
     height: 32, padding: "0 10px", fontSize: 13, borderRadius: 6,
     border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", minWidth: 220, maxWidth: 320,
   };
+  const monoStyle: React.CSSProperties = {
+    fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text)",
+    padding: "4px 8px", borderRadius: 6, background: "var(--bg-panel)",
+    overflowWrap: "anywhere", userSelect: "all",
+  };
 
   const tunnel = info?.tunnel;
+  const localUrl = info ? `http://127.0.0.1:${info.port}/` : "";
   const tunnelStatusText = !tunnel ? ""
     : tunnel.status === "running" ? t("remote.tunnelRunning")
-    // The first start downloads ~50 MB through the machine's proxy; say so instead
-    // of showing a bare "Starting…" for minutes.
     : tunnel.status === "starting" && tunnel.phase === "downloading" ? t("remote.tunnelDownloading")
     : tunnel.status === "starting" ? t("remote.tunnelStarting")
     : tunnel.status === "error" ? t("remote.tunnelError")
     : t("remote.tunnelStopped");
   const authLockedByEnv = info?.authSource === "env" || info?.authSource === "env-disabled";
+  const shownPassword = authLockedByEnv ? null : remotePassword;
 
   return (
     <div className="settings-general">
@@ -194,16 +273,53 @@ export function RemoteAccessSection() {
           <p style={hintStyle}>{t("remote.loading")}</p>
         ) : (
           <>
-            {/* Password switch */}
+            {/* This machine: no password, ever. */}
             <div style={rowStyle}>
               <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.authLabel")}</div>
-                <div style={hintStyle}>
-                  {authLockedByEnv ? t("remote.authLockedByEnv") : t("remote.authHint")}
-                </div>
-                {info.authSource === "generated" || info.authSource === "disabled" ? (
-                  <div style={{ ...hintStyle, fontFamily: "var(--font-mono)", marginTop: 4, overflowWrap: "anywhere" }}>
-                    {info.secretPath}
+                <div style={labelStyle}>{t("remote.localLabel")}</div>
+                <div style={hintStyle}>{t("remote.localHint")}</div>
+                <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>{localUrl}</div>
+              </div>
+              <ConfigButton variant="ghost" size="small" onClick={() => void copyText(localUrl, "local")}>
+                {copied === "local" ? t("remote.copied") : t("remote.copy")}
+              </ConfigButton>
+            </div>
+
+            {/* Remote password: shown, replaceable, or off. */}
+            <div style={{ ...rowStyle, alignItems: "flex-start" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={labelStyle}>{t("remote.passwordLabel")}</div>
+                <div style={hintStyle}>{authLockedByEnv ? t("remote.authLockedByEnv") : t("remote.passwordHint")}</div>
+                {!authLockedByEnv && shownPassword ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <span style={monoStyle}>{revealed ? shownPassword : "•".repeat(Math.min(shownPassword.length, 24))}</span>
+                    <ConfigButton variant="ghost" size="small" onClick={() => setRevealed((v) => !v)}>
+                      {revealed ? t("remote.hide") : t("remote.show")}
+                    </ConfigButton>
+                    <ConfigButton variant="ghost" size="small" onClick={() => void copyText(shownPassword, "password")}>
+                      {copied === "password" ? t("remote.copied") : t("remote.copy")}
+                    </ConfigButton>
+                    <ConfigButton variant="secondary" size="small" onClick={() => void randomize()} disabled={busy !== null}>
+                      {t("remote.randomize")}
+                    </ConfigButton>
+                    <ConfigButton variant="ghost" size="small" onClick={() => setShowCustom((v) => !v)} disabled={busy !== null}>
+                      {t("remote.custom")}
+                    </ConfigButton>
+                  </div>
+                ) : null}
+                {!authLockedByEnv && showCustom ? (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <input
+                      type="text"
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder={t("remote.customPlaceholder")}
+                      style={{ ...selectStyle, minWidth: 200 }}
+                      onKeyDown={(e) => { if (e.key === "Enter") void saveCustom(); }}
+                    />
+                    <ConfigButton variant="primary" size="small" onClick={() => void saveCustom()} disabled={busy !== null || draft.trim().length < 6}>
+                      {t("remote.savePassword")}
+                    </ConfigButton>
                   </div>
                 ) : null}
               </div>
@@ -214,11 +330,9 @@ export function RemoteAccessSection() {
                 onChange={(next) => void setPasswordRequired(next)}
               />
             </div>
-            {info.authSource === "disabled" ? (
-              <ConfigNotice>{t("remote.authOffNotice")}</ConfigNotice>
-            ) : null}
+            {info.authSource === "disabled" ? <ConfigNotice>{t("remote.authOffNotice")}</ConfigNotice> : null}
 
-            {/* Channel picker + QR */}
+            {/* Channel + QR/link that carries the password. */}
             <div style={rowStyle}>
               <div>
                 <div style={labelStyle}>{t("remote.channelLabel")}</div>
@@ -242,39 +356,48 @@ export function RemoteAccessSection() {
                 <div style={labelStyle}>{t("remote.shareLabel")}</div>
                 <div style={hintStyle}>{t("remote.shareHint")}</div>
                 {active ? (
-                  <div style={{ marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <ConfigButton
                       variant="primary"
                       size="small"
-                      onClick={() => void generatePair(active)}
-                      disabled={busy === "pair" || !info.passwordEnabled}
+                      onClick={() => loginUrl && void copyText(loginUrl, "link")}
+                      disabled={!loginUrl}
                     >
-                      {busy === "pair" ? t("remote.generating") : t("remote.generate")}
+                      {copied === "link" ? t("remote.copied") : t("remote.copyLink")}
                     </ConfigButton>
-                    {!info.passwordEnabled ? (
-                      <p style={{ ...hintStyle, color: "var(--accent)" }}>{t("remote.needPassword")}</p>
-                    ) : null}
+                    <ConfigButton variant="ghost" size="small" onClick={() => void generatePair(active)} disabled={busy === "pair" || !info.passwordEnabled}>
+                      {busy === "pair" ? t("remote.generating") : t("remote.tempCode")}
+                    </ConfigButton>
+                  </div>
+                ) : null}
+                {!info.passwordEnabled ? (
+                  <p style={{ ...hintStyle, color: "var(--accent)" }}>{t("remote.pairNeedsPassword")}</p>
+                ) : null}
+                {pair ? (
+                  <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <QrCode value={pair.url} size={150} />
+                    <div style={{ maxWidth: 260 }}>
+                      <code style={{ fontSize: 11, color: "var(--text-muted)", overflowWrap: "anywhere" }}>{pair.url}</code>
+                      <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>{t("remote.expiresIn")}</div>
+                    </div>
                   </div>
                 ) : null}
               </div>
-              {pair ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <QrCode value={pair.url} size={180} />
-                  <code style={{ fontSize: 11, color: "var(--text-muted)", maxWidth: 220, overflowWrap: "anywhere", textAlign: "center" }}>{pair.url}</code>
-                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{t("remote.expiresIn")}</span>
+              {loginUrl ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <QrCode value={loginUrl} size={170} />
+                  <span style={{ fontSize: 11, color: "var(--text-dim)", maxWidth: 180, textAlign: "center" }}>{t("remote.qrHint")}</span>
                 </div>
               ) : null}
             </div>
 
-            {/* Public tunnel management */}
+            {/* Public tunnel. */}
             <div style={{ ...rowStyle, borderBottom: "none" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={labelStyle}>{t("remote.tunnelLabel")}</div>
                 <div style={hintStyle}>{t("remote.tunnelHint")}</div>
                 <div style={{ ...hintStyle, marginTop: 6, color: "var(--text)" }}>{tunnelStatusText}</div>
-                {tunnel?.binaryInstalled ? (
-                  <div style={hintStyle}>{t("remote.tunnelInstalled")}</div>
-                ) : null}
+                {tunnel?.binaryInstalled ? <div style={hintStyle}>{t("remote.tunnelInstalled")}</div> : null}
                 {tunnel?.status === "running" && tunnel.url ? (
                   <div style={{ fontSize: 12, marginTop: 4, overflowWrap: "anywhere" }}><code>{tunnel.url}</code></div>
                 ) : null}
@@ -287,8 +410,14 @@ export function RemoteAccessSection() {
                   <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-stop")} disabled={busy !== null}>
                     {busy === "tunnel-stop" ? t("remote.stopping") : t("remote.tunnelStop")}
                   </ConfigButton>
+                ) : !info.passwordEnabled ? (
+                  // No password yet: make one, then open the tunnel — a public tunnel
+                  // without a password would expose the agent to the whole internet.
+                  <ConfigButton variant="secondary" size="small" onClick={() => void startTunnelWithPassword()} disabled={busy !== null || authLockedByEnv}>
+                    {busy === "tunnel-start" ? t("remote.starting") : t("remote.tunnelStartWithPassword")}
+                  </ConfigButton>
                 ) : (
-                  <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-start")} disabled={busy !== null || !info.passwordEnabled}>
+                  <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-start")} disabled={busy !== null}>
                     {busy === "tunnel-start" ? t("remote.starting") : t("remote.tunnelStart")}
                   </ConfigButton>
                 )}
@@ -302,10 +431,6 @@ export function RemoteAccessSection() {
                 </ConfigButton>
               </div>
             </div>
-
-            {!info.passwordEnabled ? (
-              <ConfigNotice>{t("remote.passwordNotice")}</ConfigNotice>
-            ) : null}
           </>
         )}
       </section>

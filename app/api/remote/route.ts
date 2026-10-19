@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { issuePairToken } from "@/lib/pairing";
 import { getWebPassword, isWebPasswordEnabled } from "@/lib/web-auth";
-import { describeWebAuth, writeWebAuthSettings } from "@/lib/web-secret";
+import {
+  describeWebAuth,
+  isPasswordFromEnv,
+  randomizeStoredSecret,
+  readStoredSecret,
+  setStoredSecret,
+  writeWebAuthSettings,
+} from "@/lib/web-secret";
 import { listRemoteAddresses } from "@/lib/remote-access";
 import { getTunnelState, startTunnel, stopTunnel, uninstallTunnel } from "@/lib/tunnel";
 
@@ -48,7 +55,8 @@ export async function GET(request: Request) {
 }
 
 /**
- * POST /api/remote  body { action: "pair" | "tunnel-start" | "tunnel-stop" | "tunnel-uninstall" | "set-password-required" }
+ * POST /api/remote  body { action: "pair" | "reveal-password" | "set-password" | "randomize-password"
+ *                          | "tunnel-start" | "tunnel-stop" | "tunnel-uninstall" | "set-password-required" }
  */
 export async function POST(request: Request) {
   if (!isApiRequestAllowed(request)) {
@@ -58,11 +66,51 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
 
-  const body = await request.json().catch(() => null) as { action?: unknown; required?: unknown } | null;
+  const body = await request.json().catch(() => null) as { action?: unknown; required?: unknown; password?: unknown } | null;
   const action = typeof body?.action === "string" ? body.action : "";
   const password = getWebPassword();
 
   switch (action) {
+    case "reveal-password": {
+      // The panel shows the password so the link/QR can carry it (DSH-style): a
+      // phone then never types anything. Never echoes PI_WEB_PASSWORD, which the
+      // operator already knows and which the UI must not copy around.
+      if (isPasswordFromEnv()) {
+        return NextResponse.json({ source: "env", password: null }, { headers: NO_STORE });
+      }
+      return NextResponse.json(
+        { source: describeWebAuth().source, password: readStoredSecret() },
+        { headers: NO_STORE },
+      );
+    }
+    case "set-password": {
+      if (typeof body?.password !== "string") {
+        return NextResponse.json({ error: "password is required" }, { status: 400, headers: NO_STORE });
+      }
+      if (isPasswordFromEnv()) {
+        return NextResponse.json(
+          { error: "PI_WEB_PASSWORD decides the password; unset it to manage it here." },
+          { status: 409, headers: NO_STORE },
+        );
+      }
+      let password: string;
+      try {
+        password = setStoredSecret(body.password);
+      } catch (err) {
+        return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400, headers: NO_STORE });
+      }
+      return NextResponse.json({ password, authRequired: true, passwordEnabled: true }, { headers: NO_STORE });
+    }
+    case "randomize-password": {
+      if (isPasswordFromEnv()) {
+        return NextResponse.json(
+          { error: "PI_WEB_PASSWORD decides the password; unset it to manage it here." },
+          { status: 409, headers: NO_STORE },
+        );
+      }
+      const password = randomizeStoredSecret();
+      return NextResponse.json({ password, authRequired: true, passwordEnabled: true }, { headers: NO_STORE });
+    }
     case "set-password-required": {
       // A switch the user flips while signed in; the env var still wins over it.
       if (typeof body?.required !== "boolean") {

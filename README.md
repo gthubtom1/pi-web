@@ -3,7 +3,7 @@
 [中文文档](./docs/README.zh-CN.md) | [日本語](./docs/README.ja.md) | [Русский](./docs/README.ru.md)
 
 > **This repository is a fork** of [upstream Pi Web](https://github.com/agegr/pi-web) (base `0.12.2`, commit `df163cd`) with extra features on top:
-> per-conversation **personas** (multiple persona cards, switchable per chat, next to the model selector), a **rules** file, **remote access** (LAN/Tailscale addresses, one-time QR sign-in, Cloudflare quick tunnel), an opt-in **advisor** reviewer model, and two depths of **rewind** (whole turn, or just the last reply).
+> per-conversation **personas** (multiple persona cards, switchable per chat, next to the model selector), a **rules** file, **remote access** (LAN/Tailscale addresses, a QR/link that carries the remote password, Cloudflare quick tunnel), an opt-in **advisor** reviewer model, and two depths of **rewind** (whole turn, or just the last reply).
 > What we changed, which upstream files we touched, and how to merge an upstream release: **[docs/FORK-NOTES.md](./docs/FORK-NOTES.md)**. Base-version facts, upgrade checklist and acceptance list live there.
 
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
@@ -88,7 +88,7 @@ pi-web -p 8080 --no-open   # binds 0.0.0.0; add -H 127.0.0.1 to keep it local-on
 PI_WEB_PASSWORD='a-long-random-password' pi-web
 ```
 
-An empty `PI_WEB_PASSWORD` (POSIX) or **Settings › Remote access › Require a password** (off) disables the remote password entirely — only on a trusted, isolated network: with it off, any device that reaches the port can run commands through the agent. A phone can also skip typing: Settings › Remote access generates a one-time QR code (2 minutes) that signs that device in, and the same panel starts a Cloudflare quick tunnel for access from another network.
+An empty `PI_WEB_PASSWORD` (POSIX) or **Settings › Remote access › Require a password** (off) disables the remote password entirely — only on a trusted, isolated network: with it off, any device that reaches the port can run commands through the agent. **Settings › Remote access** shows that password, lets you replace it with a fixed one or a new random one, and its **QR / copied link carries it** — a phone opens the app without typing anything (the same trick DSH uses: the link is the key). A one-time 2-minute code is there too, for a phone you do not want to keep a password for. The same panel starts a Cloudflare quick tunnel for access from another network.
 
 The loopback exemption trusts the request's `Host` name, which a browser cannot forge (a remote browser always presents its own address). A script on the LAN could send `Host: 127.0.0.1` and be let in, so on an untrusted network bind only loopback and expose the phone through the tunnel or Tailscale:
 
