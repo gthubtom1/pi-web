@@ -1,6 +1,15 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveAgentDir } from "./agent-dir";
+import {
+  normalizeTunnelHostname,
+  normalizeTunnelToken,
+  type TunnelConfigView,
+  type TunnelMode,
+} from "./tunnel-config-view";
+
+export { normalizeTunnelHostname, normalizeTunnelToken };
+export type { TunnelConfigView, TunnelMode };
 
 /**
  * The tunnel's persistent settings: which mode (a random quick tunnel or a fixed
@@ -16,8 +25,6 @@ import { resolveAgentDir } from "./agent-dir";
 
 export const TUNNEL_CONFIG_FILE_NAME = "pi-web-tunnel.json";
 
-export type TunnelMode = "quick" | "named";
-
 export interface TunnelConfig {
   version: 1;
   mode: TunnelMode;
@@ -27,14 +34,6 @@ export interface TunnelConfig {
   hostname: string;
   /** Start the tunnel when pi-web starts. Off by default. */
   autoStart: boolean;
-}
-
-/** What the panel may see: the credential is reduced to a boolean. */
-export interface TunnelConfigView {
-  mode: TunnelMode;
-  hostname: string;
-  autoStart: boolean;
-  hasToken: boolean;
 }
 
 export const EMPTY_TUNNEL_CONFIG: TunnelConfig = {
@@ -47,36 +46,6 @@ export const EMPTY_TUNNEL_CONFIG: TunnelConfig = {
 
 export function tunnelConfigPath(agentDir: string = resolveAgentDir()): string {
   return join(agentDir, TUNNEL_CONFIG_FILE_NAME);
-}
-
-/**
- * A hostname the request-security allow-list can hold: one exact DNS name, lower
- * case, no wildcard. A scheme, a port or a path is refused rather than quietly
- * stripped — the panel says what is wrong instead of publishing something else.
- */
-export function normalizeTunnelHostname(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const value = input.trim().toLowerCase().replace(/\.$/, "");
-  if (!value || value.length > 253) return null;
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(value)) return null;
-  // A single label ("localhost", a bare IP) is never a public entry point.
-  if (value.split(".").some((label) => label.length > 63)) return null;
-  if (value === "localhost" || value.endsWith(".localhost")) return null;
-  // No wildcard: only this one name is trusted, never a whole zone.
-  if (value.includes("*")) return null;
-  return value;
-}
-
-/** Whether a string looks like a Cloudflare tunnel token rather than a paste accident. */
-export function normalizeTunnelToken(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const value = input.trim();
-  if (value.length < 20 || value.length > 4096) return null;
-  // Tokens are base64url (sometimes JSON, sometimes dotted): no whitespace, no
-  // shell metacharacters. Nothing is interpolated into a command line — the token
-  // travels in the child's environment (lib/tunnel.ts) — but keeping it a single
-  // opaque blob also keeps it out of a copy-paste accident.
-  return /^[A-Za-z0-9+/=_.:-]+$/.test(value) ? value : null;
 }
 
 function normalizeConfig(input: unknown): TunnelConfig {

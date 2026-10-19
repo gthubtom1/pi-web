@@ -31,6 +31,7 @@
     "!.next/dev",
     "!.next/**/*.js.map",
     "public",
+    "lib/ws-protocol.cjs",
     "next.config.ts",
     "package.json"
   ],

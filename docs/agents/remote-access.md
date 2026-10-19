@@ -54,11 +54,49 @@
   able to resolve `*.trycloudflare.com`. On this machine that lookup failed (`ENOTFOUND`) even while
   the tunnel was up, so "tunnel running" is not proof the phone can open it; the QR/password path over
   LAN or Tailscale does not depend on that DNS.
+
+- `tunnel-check` (the panel's "Test it") fetches the public address from this machine, so a success
+  proves the whole path (DNS, edge, connector, app) and a failure names the step that broke. A 403 whose
+  body is a Cloudflare error page, or a 15 s timeout, means the *zone* is wrong — see the DNS note at the
+  end of this file.
 - Lifecycle lives on `globalThis` (survives hot reload). `startTunnel()` returns at once; the panel polls
   `/api/remote`. The exact hostname is registered with `lib/dynamic-hosts.ts` only while the tunnel is
   up, so request security trusts that one host and not a `trycloudflare.com` wildcard.
-- Not started automatically on boot, deliberately: a public URL that appears without a click is a
-  surprise, and this product's decision is that the tunnel only exists while the user turns it on.
+
+## Two modes: quick tunnel or fixed domain (`lib/tunnel-config.ts`)
+
+- `mode` in `<agentDir>/pi-web-tunnel.json` (0600, `version: 1`, `{ mode, token, hostname, autoStart }`)
+  chooses one or the other. The file is the only place the credential lives: nothing is hard-coded,
+  nothing is derived from an environment variable, and `GET /api/remote` answers `hasToken` — never the
+  token itself. A blank token box in Settings therefore means "keep the saved one", and the panel has no
+  way to leak it.
+- Fixed domain: `cloudflared tunnel --no-autoupdate run` with the token in `TUNNEL_TOKEN`, deliberately
+  **not** on the command line (a token in `argv` shows up in `ps` and in every crash banner), and never
+  in a log line. `cloudflared` prints no URL in this mode, so readiness comes from its
+  `Registered tunnel connection` line, with a 20 s "still alive, assume ready" fallback; the public
+  address is `https://<hostname>` from the config. On Windows the 0600 request is advisory: the file
+  lives in the user's own agent dir, and Windows has no POSIX mode.
+- The hostname is validated (`lib/tunnel-config-view.ts`): one exact DNS name, lower case, no wildcard,
+  no scheme/port/path, no IP literal, no `localhost`. That one name — never a zone — is what
+  `lib/dynamic-hosts.ts` trusts while the tunnel is up, and a save that changes it removes the old one.
+- Writes are explicit and confirmed: `tunnel-config-save` / `tunnel-config-clear` answer
+  `409 { needsConfirm: true }` when the save would replace a credential or move a live tunnel's public
+  address, and the panel asks first (`remote.namedSaveConfirm`). A save restarts a running tunnel in the
+  new mode, so the address the panel shows is the one that works; the old one is unregistered at once.
+- **Keepalive (B1):** a tunnel that was *running* and then exited is restarted with exponential backoff
+  (1 s doubling to 30 s, `restarts` in the state), keeping the address the phone is already on. A tunnel
+  that never came up stays in `error` — a broken credential must not spin forever. `stopTunnel()` clears
+  the intent, so a stop is never undone by the keepalive, and `installTunnelShutdownHook()` kills the
+  child when the server exits.
+- **autoStart (B2):** off by default. When on, `instrumentation-node.ts` starts the tunnel at boot
+  (`PI_WEB_PORT`, which `bin/pi-web.js` passes to the server) in the saved mode. Turning it on without a
+  credential reports an error in the panel instead of retrying at every boot.
+- The panel shows the **current address** with a Copy button and says not to use the browser history
+  (B3): after a restart or a hostname change the old address is dead.
+- Reminder for the Cloudflare side: a named tunnel's public hostname is a **CNAME to
+  `<tunnel-id>.cfargotunnel.com`** (proxied), and its ingress route points at `http://127.0.0.1:<port>`.
+  An `A` record to a LAN IP there yields Cloudflare ``error 1000`` ("DNS points to prohibited IP"),
+  which looks like "the tunnel is down" from the phone while the connector is perfectly healthy.
 
 ## LAN / Tailscale addresses (`lib/remote-access.ts`)
 

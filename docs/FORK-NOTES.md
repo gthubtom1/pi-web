@@ -80,6 +80,30 @@
 - 回填草稿会剥掉 Seep 工作台加在用户输入前的横幅（`lib/engineered-prompt.ts`）。
 - 新增文件：`lib/session-rewind.ts`、`app/api/sessions/[id]/rewind/`、`lib/engineered-prompt.ts`。
 
+### 2.6 远程实时通道 / 隧道保活 / 固定域名
+> 设计笔记：[`docs/agents/remote-stream-and-fixed-domain.md`](agents/remote-stream-and-fixed-domain.md)、
+> [`docs/agents/remote-access.md`](agents/remote-access.md)、[`docs/agents/sessions.md`](agents/sessions.md)
+
+- **实时通道**：`/api/agent/<id>/ws` 的 WebSocket（手机过隧道时 SSE 会被缓冲到回合结束）；
+  失败自动退回 SSE，另可选「轮询」。设置 › 常规 › 实时连接（`auto|ws|poll`，默认 auto）。
+  推送静默 3~5 秒即自动改为 1.5 秒读一次会话，一有事件立刻停。
+- **自建 server**：`bin/pi-web-server.js` 接管 Node 的 `upgrade`（Next route handler 做不到），
+  其余请求原样交给 Next；鉴权完全复用 `proxy.ts`（把浏览器的 Cookie + 原始 `Host` 以 127.0.0.1 回放），
+  桥接进程内 SSE 的每条 `data:`。`bin/pi-web.js` 不再 spawn `next start`。
+- **隧道保活（B1/B2）**：`cloudflared` 意外退出按指数退避自动重连（1s→30s），地址/白名单随之恢复；
+  「随 pi-web 自启」开关默认关，开则由 `instrumentation-node.ts` 启动时拉起。
+- **固定域名（C1–C4）**：`<agentDir>/pi-web-tunnel.json`（0600，`{mode,token,hostname,autoStart}`）+
+  `cloudflared tunnel run`（token 走 `TUNNEL_TOKEN` 环境变量）。面板里 token 打码、留空=不改，
+  保存/清空都要二次确认；`GET /api/remote` 只回 `hasToken`。
+- 新增文件：`bin/pi-web-server.js`、`lib/ws-protocol.cjs`、`lib/agent-event-transport.ts`、
+  `lib/tunnel-config.ts`、`lib/tunnel-config-view.ts`、`lib/realtime-settings.ts`、
+  `app/api/realtime/`；测试：`lib/ws-protocol.test.mjs`、`lib/agent-event-transport.test.mjs`、
+  `lib/tunnel-config.test.mjs`、`lib/tunnel-named.test.mjs`、`lib/realtime-settings.test.mjs`。
+- 改的上游文件：`bin/pi-web.js`（改成 spawn 自建 server，传 `PI_WEB_PORT`）、`lib/tunnel.ts`（模式/保活/
+  自启）、`app/api/remote/route.ts`、`components/RemoteAccessSection.tsx`、`components/SettingsPanel.tsx`、
+  `hooks/useAgentSession.ts`（传输工厂 + 静默轮询）、`instrumentation-node.ts`（自启 + 退出清理）、
+  `lib/i18n/messages/*`（约 40 条新键）、`package.json`（`files` 增加 `lib/ws-protocol.cjs`）。
+
 ### 2.5 界面适配与主题
 - 暖沙/赤陶配色（`app/globals.css` 的 `:root` / `html.dark`），输入框单层卡片（`.chat-input-shell`），
   卡片宽度等于对话列（`--chat-content-max-width`）并与消息列对齐（右侧让出 minimap 宽度）。
@@ -106,6 +130,12 @@
 | `lib/web-auth.ts` / `proxy.ts` / `app/api/web-auth/route.ts` | 密码来源改为 `getWebPassword()`；放行 `/api/web-auth/pair` | 中（安全相关，改完必测） |
 | `lib/request-security.ts` | 动态 host 白名单（隧道） | 中（安全相关） |
 | `bin/pi-web.js` / `bin/pi-web-options.js` | 打印密码/局域网地址；默认 `0.0.0.0` | 中 |
+| `bin/pi-web.js` | 不再 spawn `next start`，改为 spawn `bin/pi-web-server.js`（自建 server + WS upgrade） | **高**（上游改启动方式必冲突） |
+| `lib/tunnel.ts` | 命名隧道模式、指数退避保活、autoStart、`TUNNEL_TOKEN`；状态里加了 `mode/restarts/restarting/autoStart` | 中 |
+| `app/api/remote/route.ts` | `tunnel-config-save/clear`、`tunnel-autostart`，`GET` 带 `tunnelConfig`（只含 `hasToken`） | 中 |
+| `components/RemoteAccessSection.tsx` | 当前地址 + 复制、隧道模式二选一、固定域名 token/域名草稿与二次确认、自启开关 | 中 |
+| `hooks/useAgentSession.ts` | 事件源工厂（WS→SSE→poll）+ 推送静默时的 1.5s 会话重读 | 中 |
+| `instrumentation-node.ts` | 启动时按配置拉起隧道 + 退出时杀掉 cloudflared | 低 |
 | `app/globals.css` | 配色 + 输入框卡片 | 高（上游常调样式） |
 | `package.json` / `package-lock.json` | `qrcode-generator`、`0.0.0.0` 脚本、版本号 | 低 |
 | `app/login/page.tsx` | `?pair=` 扫码登录 | 低 |

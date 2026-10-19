@@ -29,6 +29,14 @@ import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
+import {
+  DEFAULT_REALTIME_MODE,
+  agentEventsPath,
+  agentEventsSocketUrl,
+  createAgentEventSourceFactory,
+  isRealtimeMode,
+  type RealtimeMode,
+} from "@/lib/agent-event-transport";
 import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import { CODEMODE_TOOL_NAME, getCodemodeProgress } from "@/lib/codemode-view";
@@ -235,6 +243,12 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
+// Transcript polling while the push channel is silent (or when `poll` was chosen):
+// how often the session is re-read, and how long a silence has to last before that
+// counts as a stalled stream.
+const TRANSCRIPT_POLL_INTERVAL_MS = 1_500;
+const TRANSCRIPT_POLL_SILENT_MS = 5_000;
+const TRANSCRIPT_POLL_AFTER_MS = 3_000;
 const SESSION_LEASE_RENEW_INTERVAL_MS = 30_000;
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
@@ -418,6 +432,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
   const eventConnectionRef = useRef<AgentEventConnection | null>(null);
+  // Which live transport to use (Settings › General): read once per page load, and
+  // consulted on every (re)connect.
+  const realtimeModeRef = useRef<RealtimeMode>(DEFAULT_REALTIME_MODE);
+  // When the push channel last delivered anything, and whether the transcript poll
+  // has taken over because it has gone quiet.
+  const lastEventAtRef = useRef(0);
+  const transcriptPollRef = useRef({ polling: false, tick: 0 });
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventStreamGraceGenerationRef = useRef(0);
   const eventStreamGraceActiveRef = useRef(false);
@@ -485,7 +506,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   if (!eventConnectionRef.current) {
     eventConnectionRef.current = new AgentEventConnection({
-      createSource: (sid) => new EventSource(`/api/agent/${encodeURIComponent(sid)}/events`),
+      // WebSocket first (it survives the hop a phone makes through a tunnel), SSE
+      // when the socket cannot be established, and no push channel at all in the
+      // `poll` mode an operator can choose in Settings › General.
+      createSource: createAgentEventSourceFactory({
+        mode: () => realtimeModeRef.current,
+        socketUrl: (sid) => agentEventsSocketUrl(window.location.origin, sid),
+        eventsPath: agentEventsPath,
+        createEventSource: (path) => new EventSource(path),
+        onSocketUnavailable: (reason) => {
+          console.info(`Live events: ${reason} unavailable, using the SSE stream instead.`);
+        },
+      }),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
@@ -1464,11 +1496,64 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
   }, [agentRunning, reconcileAgentState]);
 
+  // Read the operator's transport choice once per page load. A change in Settings
+  // takes effect on the next connection (or after a reload), which is also what the
+  // Settings text says.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/realtime")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { mode?: unknown } | null) => {
+        if (cancelled || !data || !isRealtimeMode(data.mode)) return;
+        realtimeModeRef.current = data.mode;
+      })
+      .catch(() => {
+        // Defaults to `auto`; no notice for a preference that could not be read.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * The transcript itself as a fallback for a push channel that is open but silent
+   * (a proxy buffering the response, a carrier that dropped the flow mid-turn).
+   *
+   * After a few seconds without an event while the agent runs — 3 s in `poll` mode,
+   * where nothing is expected to arrive at all — the session file is re-read every
+   * 1.5 s, so the conversation grows on screen instead of showing nothing until the
+   * turn ends. The first real event stops the polling again. The transcript cannot
+   * end a run by itself, so the agent's own state is checked every third tick.
+   */
+  useEffect(() => {
+    if (!agentRunning) {
+      transcriptPollRef.current = { polling: false, tick: 0 };
+      return;
+    }
+    const interval = setInterval(() => {
+      const sid = sessionIdRef.current;
+      if (!sid || !sessionHookMountedRef.current) return;
+      const threshold = realtimeModeRef.current === "poll"
+        ? TRANSCRIPT_POLL_AFTER_MS
+        : TRANSCRIPT_POLL_SILENT_MS;
+      if (Date.now() - lastEventAtRef.current < threshold) {
+        transcriptPollRef.current.polling = false;
+        return;
+      }
+      transcriptPollRef.current.polling = true;
+      transcriptPollRef.current.tick += 1;
+      void loadSession(sid, false, false, { force: true });
+      if (transcriptPollRef.current.tick % 3 === 0) void reconcileAgentState(sid);
+    }, TRANSCRIPT_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [agentRunning, loadSession, reconcileAgentState]);
+
   useEffect(() => {
     agentRunningRef.current = agentRunning;
   }, [agentRunning]);
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
+    // Any event ends a transcript poll: the push channel is delivering again.
+    lastEventAtRef.current = Date.now();
+    transcriptPollRef.current.polling = false;
     switch (event.type) {
       case "connected": {
         dispatch({ type: "end" });
@@ -1811,6 +1896,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     promptRunIdRef.current = promptRunId;
     agentRunningRef.current = true;
     setAgentRunning(true);
+    // The clock the transcript poll measures silence against starts now: a stalled
+    // channel must not be judged by events of the previous turn.
+    lastEventAtRef.current = Date.now();
+    transcriptPollRef.current = { polling: false, tick: 0 };
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;

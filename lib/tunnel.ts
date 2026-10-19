@@ -63,6 +63,12 @@ interface TunnelRuntime {
   restartAttempt: number;
   /** Set while stopTunnel() tears the child down, so its exit is not "unexpected". */
   stopping: boolean;
+  /**
+   * Bumped by every start and stop. An `await` inside runStart (a download, a
+   * proxy probe) must not spawn a child for a start the operator already
+   * cancelled or replaced.
+   */
+  generation: number;
 }
 
 declare global {
@@ -106,6 +112,7 @@ function runtime(): TunnelRuntime {
       restartTimer: null,
       restartAttempt: 0,
       stopping: false,
+      generation: 0,
     };
   }
   return globalThis.__piWebTunnel;
@@ -113,10 +120,12 @@ function runtime(): TunnelRuntime {
 
 export function getTunnelState(): TunnelState {
   const rt = runtime();
-  // autoStart lives in the config file, which Settings writes directly; read it
-  // here so the panel never shows a stale switch.
-  const autoStart = readTunnelConfig().autoStart;
-  if (autoStart !== rt.state.autoStart) rt.state.autoStart = autoStart;
+  // autoStart and the mode live in the config file, which Settings writes directly;
+  // read them here so the panel never shows a stale switch or a stale mode (while a
+  // tunnel runs, its own mode is the one that describes it).
+  const config = readTunnelConfig();
+  if (config.autoStart !== rt.state.autoStart) rt.state.autoStart = config.autoStart;
+  if (rt.state.status === "stopped" && config.mode !== rt.state.mode) rt.state.mode = config.mode;
   return { ...rt.state, binaryInstalled: existsSync(storedBinaryPath()) };
 }
 
@@ -266,6 +275,7 @@ export function startTunnel(port: number): TunnelState {
   rt.desired = true;
   rt.port = port;
   rt.restartAttempt = 0;
+  rt.generation += 1;
   clearRestart();
   setState({
     status: "starting",
@@ -304,6 +314,7 @@ export function stopTunnel(): TunnelState {
   rt.desired = false;
   clearRestart();
   rt.restartAttempt = 0;
+  rt.generation += 1;
   rt.stopping = true;
   const child = rt.child;
   if (child) {
@@ -312,8 +323,9 @@ export function stopTunnel(): TunnelState {
   }
   unregisterHost(rt.state.hostname);
   rt.starting = null;
-  const keep = { mode: rt.state.mode, autoStart: rt.state.autoStart };
-  rt.state = { ...initialState(), ...keep };
+  // The mode and the autoStart switch come from the config file, not from the
+  // state of the tunnel that just went down: Settings is what decides them.
+  rt.state = { ...initialState(), restarts: rt.state.restarts };
   rt.stopping = false;
   return getTunnelState();
 }
@@ -337,6 +349,7 @@ function scheduleRestart(reason: string): void {
 
 async function runStart(port: number, isRestart: boolean): Promise<void> {
   const rt = runtime();
+  const generation = rt.generation;
   rt.port = port;
   rt.starting = null;
 
@@ -356,8 +369,10 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
   try {
     setState({ mode, phase: "downloading" });
     bin = await ensureCloudflared();
+    if (rt.generation !== generation) return;
     setState({ phase: "connecting" });
   } catch (error) {
+    if (rt.generation !== generation) return;
     setState({ status: "error", phase: "idle", error: error instanceof Error ? error.message : String(error) });
     return;
   }
@@ -365,6 +380,7 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
   // Give cloudflared the same proxy the download used (its Go runtime reads
   // HTTPS_PROXY/ALL_PROXY), so the tunnel connects through the local 梯子 too.
   const proxy = await resolveOutboundProxy();
+  if (rt.generation !== generation) return;
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (proxy) {
     env.HTTPS_PROXY = proxy;
@@ -391,7 +407,7 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      clearTimeout(assumeTimer);
+      if (assumeTimer) clearTimeout(assumeTimer);
       setState(patch);
       resolve();
     };
@@ -500,8 +516,8 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
     // say "running" would keep the panel saying "starting" long after it works.
     const assumeTimer = mode === "named"
       ? setTimeout(() => settleNamed(), NAMED_ASSUME_READY_MS)
-      : setTimeout(() => {}, 0);
-    assumeTimer.unref?.();
+      : null;
+    assumeTimer?.unref?.();
   });
 }
 

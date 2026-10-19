@@ -20,8 +20,6 @@ const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getHelpText, parseCommandLine } = require("./pi-web-options");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { getNextNodeArgs } = require("./pi-web-node-args");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { wireChildProcessLifecycle } = require("./process-lifecycle");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { rotatePreviewSecrets, getRotationWarning } = require("./rotate-preview-secrets");
@@ -122,20 +120,10 @@ function startServer({ port, hostname, openBrowser }) {
   const pkgDir = path.join(__dirname, "..");
   const nextDir = path.join(pkgDir, ".next");
 
-  // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
-  // may not exist when installed via npx).
-  let nextBin;
-  try {
-    nextBin = require.resolve("next/dist/bin/next", { paths: [pkgDir] });
-  } catch {
-    // Fallback: locate next package root and derive the bin path manually.
-    try {
-      const nextPkg = require.resolve("next/package.json", { paths: [pkgDir] });
-      nextBin = path.join(path.dirname(nextPkg), "dist", "bin", "next");
-    } catch {
-      nextBin = path.join(pkgDir, "node_modules", "next", "dist", "bin", "next");
-    }
-  }
+  // Pi Web runs its own small HTTP server (bin/pi-web-server.js): Next answers every
+  // ordinary request, and that server additionally handles the live-event WebSocket
+  // at /api/agent/:id/ws, which a Next route handler cannot (no `upgrade` there).
+  const serverEntry = path.join(__dirname, "pi-web-server.js");
 
   const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   // Auth is on by default: a strong random secret is generated on first run and
@@ -168,15 +156,16 @@ function startServer({ port, hostname, openBrowser }) {
     }
   }
 
-  const nextArgs = ["start", "-p", port];
-  nextArgs.push("-H", hostname);
-
-  // Always run next's JS entry with node directly — avoids .bin symlink issues
-  // and path-with-spaces problems on Windows when shell: true is used.
-  const child = spawn(process.execPath, getNextNodeArgs(nextBin, nextArgs), {
+  // The hostname and port travel in the environment; the server reads both.
+  const child = spawn(process.execPath, [serverEntry], {
     cwd: pkgDir,
     stdio: ["inherit", "pipe", "inherit"],
-    env: { ...process.env, PI_WEB_HOSTNAME: hostname },
+    env: {
+      ...process.env,
+      PI_WEB_HOSTNAME: hostname,
+      // The server and the tunnel supervisor both need the port the browser uses.
+      PI_WEB_PORT: String(port),
+    },
   });
   wireChildProcessLifecycle(child);
 

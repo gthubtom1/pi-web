@@ -15,6 +15,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { REALTIME_MODES, isRealtimeMode, type RealtimeMode } from "@/lib/agent-event-transport";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -92,6 +93,9 @@ function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnab
   const [cacheMissNotices, setCacheMissNotices] = useState<boolean | null>(null);
   const [cacheMissNoticesSaving, setCacheMissNoticesSaving] = useState(false);
   const [cacheMissNoticesError, setCacheMissNoticesError] = useState<string | null>(null);
+  const [realtimeMode, setRealtimeMode] = useState<RealtimeMode | null>(null);
+  const [realtimeSaving, setRealtimeSaving] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [pushRegistering, setPushRegistering] = useState(false);
   const [pushStatus, setPushStatus] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [webAuthEnabled, setWebAuthEnabled] = useState(false);
@@ -166,6 +170,41 @@ function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnab
       setCacheMissNoticesError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setCacheMissNoticesSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/realtime")
+      .then(async (response) => {
+        const data = await response.json() as { mode?: unknown; error?: string };
+        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!cancelled && isRealtimeMode(data.mode)) setRealtimeMode(data.mode);
+      })
+      .catch((cause) => {
+        if (!cancelled) setRealtimeError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // The live transport (Settings › General). The open page keeps the connection it
+  // already had, so the hint under the switch says a reload applies it.
+  const chooseRealtimeMode = async (mode: RealtimeMode) => {
+    setRealtimeSaving(true);
+    setRealtimeError(null);
+    try {
+      const response = await fetch("/api/realtime", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await response.json() as { mode?: unknown; error?: string };
+      if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+      if (isRealtimeMode(data.mode)) setRealtimeMode(data.mode);
+    } catch (cause) {
+      setRealtimeError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRealtimeSaving(false);
     }
   };
 
@@ -384,6 +423,45 @@ function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnab
         </div>
         <p id="settings-cache-miss-notices-description" className="settings-general-description">{t("settings.cacheMissNoticesDescription")}</p>
         {cacheMissNoticesError && <p role="alert" className="settings-general-error">{cacheMissNoticesError}</p>}
+      </section>
+
+      <section className="settings-general-section">
+        <h3 className="settings-general-heading">{t("settings.realtimeHeading")}</h3>
+        <p className="settings-general-description">{t("settings.realtimeDescription")}</p>
+        <div className="settings-chat-options">
+          <div
+            className="settings-chat-option settings-chat-switch-option"
+            role="radiogroup"
+            aria-label={t("settings.realtimeLabel")}
+            aria-describedby="settings-realtime-description"
+          >
+            <span>{t("settings.realtimeLabel")}</span>
+            <div className="settings-send-mode-options">
+              {REALTIME_MODES.map((mode) => (
+                <label key={mode} className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="realtime-mode"
+                    value={mode}
+                    checked={realtimeMode === mode}
+                    disabled={realtimeSaving || realtimeMode === null}
+                    onChange={() => void chooseRealtimeMode(mode)}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">
+                    {mode === "auto"
+                      ? t("settings.realtimeAuto")
+                      : mode === "ws"
+                        ? t("settings.realtimeSocket")
+                        : t("settings.realtimePoll")}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <p id="settings-realtime-description" className="settings-general-description">{t("settings.realtimeHint")}</p>
+        {realtimeError && <p role="alert" className="settings-general-error">{realtimeError}</p>}
       </section>
 
       <section className="settings-general-section">

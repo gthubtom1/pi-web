@@ -40,6 +40,34 @@ Browser display copies omit content-block `thinkingSignature`, `textSignature`, 
 ## SSE reconnect on page refresh mid-stream
 On mount `useAgentSession` loads the history, then `GET /api/sessions/[id]/state` (`loadSession(…, includeState)`): `state.isStreaming` or `state.isPromptRunning` resumes the run in the UI, and `thinkingLevel` / `isCompacting` sync from it. No reconnect is needed: the selected session's stream stays open whether or not it runs (`maintainEventsConnected()`, warm-session effect), and its `connected` event carries `isStreaming`.
 
+## Live transport: WebSocket first, SSE, then the transcript (`lib/agent-event-transport.ts`)
+
+A phone on a carrier, behind a tunnel, does not reliably receive a chunked `text/event-stream`: the
+stream stays open and delivers nothing until the turn ends. So the same event feed is available on
+three transports, chosen in Settings › General (`realtime` in `<agentDir>/pi-web-realtime.json`, default
+`auto`):
+
+- **WebSocket** (`/api/agent/<id>/ws`) — `AgentEventConnection` is unchanged; it still drives an
+  `AgentEventSourceLike`, and `createWebSocketSource()` dresses a socket as one (each frame is the JSON
+  payload of exactly one agent event). Next's route handlers cannot answer an `upgrade`, so the socket
+  lives in `bin/pi-web-server.js`, which wraps Next's request handler; auth is the app's own, replayed
+  over loopback with the browser's cookie *and* its original `Host` (so pairing scopes, `PI_WEB_PASSWORD`
+  and the tunnel allow-list apply unchanged), and the frames come from the existing SSE endpoint.
+  An `Origin` that is not the page's own authority is refused, as `proxy.ts` does for API requests.
+- **SSE** (`/api/agent/<id>/events`) — unchanged, still the fallback and still what `npm run dev` uses
+  (that server has no upgrade handler). `auto` remembers a socket failure and stays on SSE for the rest
+  of the page's life instead of paying a failed handshake per reconnect; `ws` never falls back.
+- **Polling** — no push channel at all (`createPollingSource()` answers the readiness handshake and then
+  stays silent). The chat grows from the transcript instead.
+
+Independently of the mode, a **silent** push channel falls back to the transcript: while `agentRunning`
+and no event has arrived for 5 s (3 s in `poll` mode), the hook re-reads the session every 1.5 s
+(`loadSession(…, { force: true })`, which keeps the message keys and the paged-history window a plain
+`/context` read would drop) and checks the agent's own state every third tick — a transcript cannot end
+a run, `/api/agent/<id>` can. The first real event stops the polling again. This is the existing
+`reconcileAgentState()` net (15 s, plus visibility/online) tightened for the case where the stream is
+open but mute.
+
 ## Loading older history (`components/ChatWindow.tsx`)
 The chat renders the last `visibleCount` rows, kept at least the loaded message count, with a sentinel above them while rows are hidden or the server has older entries (`hasEarlierMessages`, paged with `loadContext(…, before)`). Rows are not messages: a turn's answer and its thinking render as two, so loaded rows can outnumber the window; with nothing older on the server, reaching the sentinel widens the window (`getNextVisibleCount()`). The sentinel element is state (a callback ref), so the observer attaches whenever it appears, and the observer is renewed when the window grows: IntersectionObserver reports only changes, so a sentinel still in view would wait for the user to scroll away and back. A page lands, and `loadingOlderRef` clears, a moment before the next cursor renders; a report in between still holds the old cursor and prepended the same page twice. So `loadOlderPage()` keeps the cursor it asked for until another one renders, and the observer skips it; a page that failed, or a cursor a reload brings back, can be asked for again.
 - The minimap numbers turns from the branch's first, not the loaded page's (#791). Each context page carries `turnsBefore`: the turn anchors on the branch above its oldest entry, counted with `isMessageGroupAnchor()` on the shape `entryToUiMessage()` would give (`countTurnsBefore()`, `lib/session-reader.ts`), so the client's turns and the server's count agree. The hook keeps it beside the history cursor (`earlierTurnCount`, also in the view cache); a loaded turn is numbered `turnsBefore + index + 1` and keeps that number as older pages land. While it is above 0 the rail shows a dotted stub above the first node and the preview's first row says how many turns are not loaded; clicking it scrolls the chat to the top, so the sentinel pages them in. Unloaded turns have no placeholder nodes yet.
