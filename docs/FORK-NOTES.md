@@ -10,7 +10,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 上游仓库 | `https://github.com/agegr/pi-web.git`（`origin`） |
+| 自己的仓库（`origin`） | `https://github.com/gthubtom1/pi-web.git`（GitHub 上的 fork，我们的提交在这里） |
+| 上游仓库（`upstream`） | `https://github.com/agegr/pi-web.git`（原作者仓库） |
 | 上游版本 | `@agegr/pi-web` **0.12.2** |
 | 基线 commit | **`df163cd`** — `feat(models): match provider ids in the model and Add provider searches (#1308)` |
 | 本仓库版本 | `package.json` 已改为 **0.13.0**（我们的第一个成品版本号） |
@@ -113,9 +114,8 @@
 ### 4.1 先判断"要不要升"
 
 ```bash
-git fetch origin                 # origin = 我们的 fork 的 main（基线提交所在）
-git log --oneline -1             # 当前基线
-git remote add upstream https://github.com/agegr/pi-web.git   # 若还没有
+# 两个 remote 已经配好：origin = 我们的 fork，upstream = 原作者仓库。
+git remote -v
 git fetch upstream
 git log --oneline HEAD..upstream/main | head -30      # 上游新提交
 git diff --stat HEAD...upstream/main | tail -20      # 影响面
