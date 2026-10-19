@@ -49,24 +49,21 @@ interface CheckResult {
   dnsFailure?: boolean;
 }
 
+/** Every card's QR slot is the same square, filled or not, so the three line up. */
+const QR_SLOT = 156;
+
 /**
  * Settings › Remote access.
  *
- * Two independent entry points, one below the other — never a dropdown, because a
- * QR code must say which door it opens:
+ * Three doors for other devices — the local network, the tailnet, and the public
+ * tunnel — each with its own credential, its own address and its own QR. They are
+ * rendered as three numbered CARDS, not as sections of one long column: with three
+ * QRs on screen, "which code belongs to which door" has to be answerable at a
+ * glance, so every card repeats the same layout (number, name, what it is, its
+ * code, its address, its QR) and its QR always occupies the same square, empty or
+ * not, so the cards stay aligned even before an address exists.
  *
- *   局域网  the same Wi-Fi: a code (or its QR) that only works on this network;
- *   公网    the Cloudflare tunnel: its own code, its own switch, recommended on.
- *
- * The tunnel itself has two modes (a random quick tunnel or the operator's fixed
- * domain). They are mutually exclusive, and the fixed domain is two plain input
- * boxes plus an explicit Save: the token never travels back to this page, so a
- * blank box means "keep the saved one", and nothing is written until Save is
- * confirmed.
- *
- * A device pairs with a short code or by scanning the QR (the QR carries a
- * high-entropy secret in the URL fragment, so it never reaches a server log). This
- * machine needs neither: 127.0.0.1 is always let in.
+ * This machine itself needs no code: 127.0.0.1 is always let in.
  */
 export function RemoteAccessSection() {
   const { t } = useI18n();
@@ -214,12 +211,31 @@ export function RemoteAccessSection() {
     }
   };
 
-  const rowStyle: React.CSSProperties = {
-    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-    padding: "12px 0", borderBottom: "1px solid var(--border)",
+  // ---- styles -----------------------------------------------------------------
+  const sectionStyle: React.CSSProperties = { display: "grid", gap: 12, marginTop: 6 };
+  const cardStyle: React.CSSProperties = {
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    background: "var(--bg)",
+    padding: "14px 16px 16px",
   };
-  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 500, color: "var(--text)" };
-  const hintStyle: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)", marginTop: 3, maxWidth: 520, lineHeight: 1.5 };
+  const cardHeadStyle: React.CSSProperties = {
+    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+    paddingBottom: 12, borderBottom: "1px solid var(--border)",
+  };
+  const badgeStyle: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+    width: 20, height: 20, borderRadius: 999, border: "1px solid var(--border)",
+    fontSize: 11, fontWeight: 700, color: "var(--text-muted)", background: "var(--bg-panel)",
+  };
+  const cardTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: "var(--text)" };
+  const tagStyle: React.CSSProperties = {
+    fontSize: 11, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap",
+    border: "1px solid var(--border)", color: "var(--text-muted)", background: "var(--bg-panel)",
+  };
+  const rowStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 };
+  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 500, color: "var(--text-muted)", minWidth: 52 };
+  const hintStyle: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)", marginTop: 8, maxWidth: 520, lineHeight: 1.55 };
   const monoStyle: React.CSSProperties = {
     fontFamily: "var(--font-mono)", fontSize: 12, padding: "4px 8px", borderRadius: 6,
     background: "var(--bg-panel)", color: "var(--text)", overflowWrap: "anywhere", userSelect: "all",
@@ -239,14 +255,15 @@ export function RemoteAccessSection() {
     border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)",
     width: 260, maxWidth: "100%", fontFamily: "var(--font-mono)",
   };
+  const dividerStyle: React.CSSProperties = { height: 1, background: "var(--border)", margin: "14px 0 0" };
+  const subHeadStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "var(--text)", marginTop: 14 };
 
   const tunnel = info?.tunnel;
   const config = info?.tunnelConfig;
   const mode = modeDraft ?? config?.mode ?? "quick";
   const lanOrigin = info && info.lan[0] ? `http://${info.lan[0].address}:${info.port}/` : "";
-  const tunnelOrigin = tunnel?.status === "running" && tunnel.url ? `${tunnel.url}/` : "";
-  // The tailnet address is its own door (its own code and QR), never the LAN one.
   const tailscaleOrigin = info && info.tailscale[0] ? `http://${info.tailscale[0].address}:${info.port}/` : "";
+  const tunnelOrigin = tunnel?.status === "running" && tunnel.url ? `${tunnel.url}/` : "";
   const localOrigin = info ? `http://127.0.0.1:${info.port}/` : "";
 
   /**
@@ -255,77 +272,109 @@ export function RemoteAccessSection() {
    */
   const linkFor = (origin: string, scope: Scope) => (info && origin ? `${origin}#pair=${info.pairing[scope].secret}` : "");
 
-  const pairingBlock = (scope: Scope, origin: string, hintKey: string) => {
+  /** A card's switch with its caption: the switch alone would say nothing. */
+  const switchWithCaption = (scope: Scope, checked: boolean) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+      <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{t("remote.codeEnable")}</span>
+      <ConfigSwitch
+        checked={checked}
+        disabled={busy !== null}
+        label={`${t("remote.codeEnable")} (${t(`remote.tag${scope === "lan" ? "Lan" : scope === "public" ? "Public" : "Tailscale"}`)})`}
+        onChange={(next) => void pairingAction(scope, "toggle", { enabled: next })}
+      />
+    </div>
+  );
+
+  /** One card: number, name, what it is, its switch, then body | QR slot. */
+  const card = (options: {
+    index: number;
+    title: string;
+    tag: string;
+    scope: Scope;
+    action: React.ReactNode;
+    qrValue: string;
+    emptyQrHint: string;
+    children: React.ReactNode;
+  }) => (
+    <section style={cardStyle} aria-label={options.title}>
+      <header style={cardHeadStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
+          <span style={badgeStyle} aria-hidden="true">{options.index}</span>
+          <span style={cardTitleStyle}>{options.title}</span>
+          <span style={tagStyle}>{options.tag}</span>
+        </div>
+        {options.action}
+      </header>
+      <div style={{ display: "flex", gap: 18, alignItems: "flex-start", marginTop: 14 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>{options.children}</div>
+        {/* Fixed square: the cards stay aligned whether or not this door is available. */}
+        <div
+          style={{
+            width: QR_SLOT, height: QR_SLOT, flexShrink: 0, borderRadius: 10,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 8,
+            border: options.qrValue ? "1px solid var(--border)" : "1px dashed var(--border)",
+            background: options.qrValue ? "var(--bg-panel)" : "transparent",
+          }}
+        >
+          {options.qrValue
+            ? <QrCode value={options.qrValue} size={QR_SLOT - 16} />
+            : <span style={{ fontSize: 11, color: "var(--text-dim)", textAlign: "center", lineHeight: 1.5 }}>{options.emptyQrHint}</span>}
+        </div>
+      </div>
+    </section>
+  );
+
+  /** The pairing-code line every card repeats, so the three read identically. */
+  const pairingRow = (scope: Scope) => {
     if (!info) return null;
     const pairing = info.pairing[scope];
     const editingThis = editing === scope;
     return (
       <>
         <div style={rowStyle}>
-          <div style={{ minWidth: 0 }}>
-            <div style={labelStyle}>{t("remote.codeLabel")}</div>
-            <div style={hintStyle}>{t(pairing.enabled ? hintKey : "remote.codeOffHint")}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={codeStyle}>{pairing.enabled ? pairing.code : "— — —"}</span>
-              <ConfigButton variant="ghost" size="small" onClick={() => void copyText(pairing.code, `${scope}:code`)} disabled={!pairing.enabled}>
-                {copied === `${scope}:code` ? t("remote.copied") : t("remote.copy")}
-              </ConfigButton>
-              <ConfigButton variant="secondary" size="small" onClick={() => void pairingAction(scope, "random")} disabled={busy !== null}>
-                {t("remote.randomize")}
-              </ConfigButton>
-              <ConfigButton variant="ghost" size="small" onClick={() => { setEditing(editingThis ? null : scope); setDraft(""); }} disabled={busy !== null}>
-                {t("remote.custom")}
-              </ConfigButton>
-            </div>
-            {editingThis ? (
-              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12))}
-                  placeholder={t("remote.customPlaceholder")}
-                  style={inputStyle}
-                  onKeyDown={(e) => { if (e.key === "Enter" && draft.length >= 6) void pairingAction(scope, "set", { code: draft }); }}
-                />
-                <ConfigButton variant="primary" size="small" onClick={() => void pairingAction(scope, "set", { code: draft })} disabled={busy !== null || draft.length < 6}>
-                  {t("remote.saveCode")}
-                </ConfigButton>
-              </div>
-            ) : null}
-          </div>
-          <ConfigSwitch
-            checked={pairing.enabled}
-            disabled={busy !== null}
-            label={t("remote.codeEnable")}
-            onChange={(next) => void pairingAction(scope, "toggle", { enabled: next })}
-          />
+          <span style={labelStyle}>{t("remote.codeLabel")}</span>
+          <span style={codeStyle}>{pairing.enabled ? pairing.code : "— — —"}</span>
+          <ConfigButton variant="ghost" size="small" onClick={() => void copyText(pairing.code, `${scope}:code`)} disabled={!pairing.enabled}>
+            {copied === `${scope}:code` ? t("remote.copied") : t("remote.copy")}
+          </ConfigButton>
+          <ConfigButton variant="secondary" size="small" onClick={() => void pairingAction(scope, "random")} disabled={busy !== null}>
+            {t("remote.randomize")}
+          </ConfigButton>
+          <ConfigButton variant="ghost" size="small" onClick={() => { setEditing(editingThis ? null : scope); setDraft(""); }} disabled={busy !== null}>
+            {t("remote.custom")}
+          </ConfigButton>
         </div>
-        {pairing.enabled && origin ? (
-          <div style={{ ...rowStyle, alignItems: "flex-start", borderBottom: "none" }}>
-            <div style={{ minWidth: 0 }}>
-              {scope === "lan" ? (
-                <>
-                  <div style={labelStyle}>{t("remote.lanUrlLabel")}</div>
-                  <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>{origin}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <ConfigButton variant="ghost" size="small" onClick={() => void copyText(origin, `${scope}:origin`)}>
-                      {copied === `${scope}:origin` ? t("remote.copied") : t("remote.copyUrl")}
-                    </ConfigButton>
-                  </div>
-                </>
-              ) : null}
-              <div style={hintStyle}>{t("remote.qrHint")}</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              <QrCode value={linkFor(origin, scope)} size={scope === "lan" ? 150 : 170} />
-            </div>
+        {editingThis ? (
+          <div style={{ ...rowStyle, marginTop: 8 }}>
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12))}
+              placeholder={t("remote.customPlaceholder")}
+              style={inputStyle}
+              onKeyDown={(e) => { if (e.key === "Enter" && draft.length >= 6) void pairingAction(scope, "set", { code: draft }); }}
+            />
+            <ConfigButton variant="primary" size="small" onClick={() => void pairingAction(scope, "set", { code: draft })} disabled={busy !== null || draft.length < 6}>
+              {t("remote.saveCode")}
+            </ConfigButton>
           </div>
         ) : null}
+        {!pairing.enabled ? <div style={hintStyle}>{t("remote.codeOffHint")}</div> : null}
       </>
     );
   };
 
-  /** One status line saying what the tunnel is doing right now, in the chosen mode. */
+  /** The address line, with its copy button; `null` while the door is unavailable. */
+  const addressRow = (origin: string, copyKey: string) => (
+    <div style={rowStyle}>
+      <span style={labelStyle}>{t("remote.lanUrlLabel")}</span>
+      <span style={{ ...monoStyle, opacity: origin ? 1 : 0.6 }}>{origin || t("remote.addressPending")}</span>
+      <ConfigButton variant="ghost" size="small" onClick={() => void copyText(origin, copyKey)} disabled={!origin}>
+        {copied === copyKey ? t("remote.copied") : t("remote.copyUrl")}
+      </ConfigButton>
+    </div>
+  );
+
   const tunnelStatusText = () => {
     if (!tunnel) return "";
     if (tunnel.restarting) return t("remote.restarting", { count: tunnel.restarts + 1 });
@@ -343,15 +392,14 @@ export function RemoteAccessSection() {
         <p className="settings-general-description">{t("remote.description")}</p>
 
         {error ? <p role="alert" className="settings-general-error">{t("remote.failed")}{error}</p> : null}
-
         {!info ? <p style={hintStyle}>{t("remote.loading")}</p> : null}
 
         {info ? (
           <>
-            {/* This machine */}
-            <div style={rowStyle}>
+            {/* This machine is not one of the three doors: it never asks. */}
+            <div style={{ ...rowStyle, justifyContent: "space-between", marginTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.localLabel")}</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{t("remote.localLabel")}</div>
                 <div style={hintStyle}>{t("remote.localHint")}</div>
                 <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>{localOrigin}</div>
               </div>
@@ -360,221 +408,211 @@ export function RemoteAccessSection() {
               </ConfigButton>
             </div>
 
-            {/* Entry 1: LAN */}
-            <h4 className="settings-general-heading" style={{ fontSize: 13, marginTop: 18 }}>{t("remote.lanHeading")}</h4>
-            <p style={hintStyle}>{t("remote.lanIntro")}</p>
-            {lanOrigin ? pairingBlock("lan", lanOrigin, "remote.codeHintLan") : (
-              <p style={hintStyle}>{t("remote.noChannel")}</p>
-            )}
-
-            {/* Entry 2: the tailnet — its own code and QR, any network */}
-            <h4 className="settings-general-heading" style={{ fontSize: 13, marginTop: 22 }}>{t("remote.tailscaleHeading")}</h4>
-            <p style={hintStyle}>{t("remote.tailscaleIntro")}</p>
-            {tailscaleOrigin ? (
-              <>
-                <div style={rowStyle}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={labelStyle}>{t("remote.lanUrlLabel")}</div>
-                    <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>{tailscaleOrigin}</div>
-                    <div style={hintStyle}>{t("remote.tailscaleAddressHint")}</div>
-                  </div>
-                  <ConfigButton variant="ghost" size="small" onClick={() => void copyText(tailscaleOrigin, "tailscale:origin")}>
-                    {copied === "tailscale:origin" ? t("remote.copied") : t("remote.copyUrl")}
-                  </ConfigButton>
-                </div>
-                {pairingBlock("tailscale", tailscaleOrigin, "remote.codeHintTailscale")}
-                {!info.pairing.tailscale.enabled ? (
-                  <ConfigNotice>{t("remote.tailscaleCodeOffNotice")}</ConfigNotice>
-                ) : null}
-              </>
-            ) : (
-              <p style={hintStyle}>{t("remote.noTailscale")}</p>
-            )}
-
-            {/* Entry 3: public tunnel */}
-            <h4 className="settings-general-heading" style={{ fontSize: 13, marginTop: 22 }}>{t("remote.tunnelLabel")}</h4>
-
-            {/* The address a phone should open: the panel's own, never the history's. */}
-            <div style={rowStyle}>
-              <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.currentAddress")}</div>
-                <div style={{ ...monoStyle, marginTop: 6, display: "inline-block" }}>
-                  {tunnelOrigin || "—"}
-                </div>
-                <div style={hintStyle}>{t("remote.currentAddressHint")}</div>
-                {tunnel?.restarts ? <div style={hintStyle}>{t("remote.restarts", { count: tunnel.restarts })}</div> : null}
-              </div>
-              <ConfigButton
-                variant="ghost"
-                size="small"
-                onClick={() => void copyText(tunnelOrigin, "tunnel")}
-                disabled={!tunnelOrigin}
-              >
-                {copied === "tunnel" ? t("remote.copied") : t("remote.copy")}
-              </ConfigButton>
-            </div>
-
-            <div style={rowStyle}>
-              <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.tunnelStatus")}</div>
-                <div style={{ ...hintStyle, color: "var(--text)" }}>{tunnelStatusText()}</div>
-                {tunnel?.binaryInstalled ? <div style={hintStyle}>{t("remote.tunnelInstalled")}</div> : null}
-                {tunnel?.status === "error" && tunnel.error ? (
-                  <p role="alert" style={{ ...hintStyle, color: "#ef4444" }}>{tunnel.error}</p>
-                ) : null}
-                {check ? (
-                  <p style={{ ...hintStyle, color: check.ok ? "var(--accent)" : "#ef4444", marginTop: 6 }}>
-                    {check.ok
-                      ? t("remote.checkOk", { ms: String(check.ms ?? 0) })
-                      : `${t("remote.checkFailed")}${check.error ?? ""}${check.dnsFailure ? ` — ${t("remote.checkDns")}` : ""}`}
-                  </p>
-                ) : null}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-                {tunnel?.status === "running" || tunnel?.status === "starting" ? (
+            <div style={sectionStyle}>
+              {/* 1 · LAN */}
+              {card({
+                index: 1,
+                title: t("remote.lanHeading"),
+                tag: t("remote.tagLan"),
+                scope: "lan",
+                qrValue: lanOrigin ? linkFor(lanOrigin, "lan") : "",
+                emptyQrHint: t("remote.qrEmptyNoAddress"),
+                action: switchWithCaption("lan", info.pairing.lan.enabled),
+                children: (
                   <>
-                    <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-stop")} disabled={busy !== null}>
-                      {busy === "tunnel-stop" ? t("remote.stopping") : t("remote.tunnelStop")}
-                    </ConfigButton>
-                    {tunnel?.status === "running" ? (
-                      <ConfigButton variant="ghost" size="small" onClick={() => void runCheck()} disabled={busy !== null}>
-                        {busy === "tunnel-check" ? t("remote.checking") : t("remote.check")}
-                      </ConfigButton>
-                    ) : null}
+                    <div style={hintStyle}>{t("remote.lanIntro")}</div>
+                    {pairingRow("lan")}
+                    {addressRow(lanOrigin, "lan:origin")}
+                    {!lanOrigin ? <div style={hintStyle}>{t("remote.noChannel")}</div> : null}
                   </>
-                ) : (
-                  <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-start")} disabled={busy !== null}>
-                    {busy === "tunnel-start" ? t("remote.starting") : t("remote.tunnelStart")}
-                  </ConfigButton>
-                )}
-                <ConfigButton
-                  variant="ghost"
-                  size="small"
-                  onClick={() => void tunnelAction("tunnel-uninstall")}
-                  disabled={busy !== null || (!tunnel?.binaryInstalled && tunnel?.status === "stopped")}
-                >
-                  {busy === "tunnel-uninstall" ? t("remote.uninstalling") : t("remote.tunnelUninstall")}
-                </ConfigButton>
-              </div>
+                ),
+              })}
+
+              {/* 2 · Tailscale */}
+              {card({
+                index: 2,
+                title: t("remote.tailscaleHeading"),
+                tag: t("remote.tagTailscale"),
+                scope: "tailscale",
+                qrValue: tailscaleOrigin ? linkFor(tailscaleOrigin, "tailscale") : "",
+                emptyQrHint: t("remote.qrEmptyTailscale"),
+                action: switchWithCaption("tailscale", info.pairing.tailscale.enabled),
+                children: (
+                  <>
+                    <div style={hintStyle}>{tailscaleOrigin ? t("remote.tailscaleAddressHint") : t("remote.noTailscale")}</div>
+                    {pairingRow("tailscale")}
+                    {addressRow(tailscaleOrigin, "tailscale:origin")}
+                  </>
+                ),
+              })}
+
+              {/* 3 · Public tunnel */}
+              {card({
+                index: 3,
+                title: t("remote.tunnelLabel"),
+                tag: t("remote.tagPublic"),
+                scope: "public",
+                qrValue: tunnelOrigin ? linkFor(tunnelOrigin, "public") : "",
+                emptyQrHint: t("remote.qrEmptyPublic"),
+                action: switchWithCaption("public", info.pairing.public.enabled),
+                children: (
+                  <>
+                    <div style={hintStyle}>{t("remote.currentAddressHint")}</div>
+                    {pairingRow("public")}
+                    {addressRow(tunnelOrigin, "tunnel")}
+                    {tunnel?.restarts ? <div style={hintStyle}>{t("remote.restarts", { count: tunnel.restarts })}</div> : null}
+
+                    <div style={dividerStyle} />
+                    <div style={{ ...rowStyle, justifyContent: "space-between", marginTop: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("remote.tunnelStatus")}</div>
+                        <div style={{ fontSize: 13, color: "var(--text)", marginTop: 2 }}>{tunnelStatusText()}</div>
+                        {tunnel?.binaryInstalled ? <div style={hintStyle}>{t("remote.tunnelInstalled")}</div> : null}
+                        {tunnel?.status === "error" && tunnel.error ? (
+                          <p role="alert" style={{ ...hintStyle, color: "#ef4444" }}>{tunnel.error}</p>
+                        ) : null}
+                        {check ? (
+                          <p style={{ ...hintStyle, color: check.ok ? "var(--accent)" : "#ef4444" }}>
+                            {check.ok
+                              ? t("remote.checkOk", { ms: String(check.ms ?? 0) })
+                              : `${t("remote.checkFailed")}${check.error ?? ""}${check.dnsFailure ? ` — ${t("remote.checkDns")}` : ""}`}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+                        {tunnel?.status === "running" || tunnel?.status === "starting" ? (
+                          <>
+                            <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-stop")} disabled={busy !== null}>
+                              {busy === "tunnel-stop" ? t("remote.stopping") : t("remote.tunnelStop")}
+                            </ConfigButton>
+                            {tunnel?.status === "running" ? (
+                              <ConfigButton variant="ghost" size="small" onClick={() => void runCheck()} disabled={busy !== null}>
+                                {busy === "tunnel-check" ? t("remote.checking") : t("remote.check")}
+                              </ConfigButton>
+                            ) : null}
+                          </>
+                        ) : (
+                          <ConfigButton variant="secondary" size="small" onClick={() => void tunnelAction("tunnel-start")} disabled={busy !== null}>
+                            {busy === "tunnel-start" ? t("remote.starting") : t("remote.tunnelStart")}
+                          </ConfigButton>
+                        )}
+                        <ConfigButton
+                          variant="ghost"
+                          size="small"
+                          onClick={() => void tunnelAction("tunnel-uninstall")}
+                          disabled={busy !== null || (!tunnel?.binaryInstalled && tunnel?.status === "stopped")}
+                        >
+                          {busy === "tunnel-uninstall" ? t("remote.uninstalling") : t("remote.tunnelUninstall")}
+                        </ConfigButton>
+                      </div>
+                    </div>
+
+                    <div style={dividerStyle} />
+                    <div style={{ ...rowStyle, justifyContent: "space-between", marginTop: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("remote.autoStartLabel")}</div>
+                        <div style={hintStyle}>{t("remote.autoStartHint")}</div>
+                      </div>
+                      <ConfigSwitch
+                        checked={config?.autoStart === true}
+                        disabled={busy !== null}
+                        label={t("remote.autoStartLabel")}
+                        onChange={(next) => void toggleAutoStart(next)}
+                      />
+                    </div>
+
+                    <div style={dividerStyle} />
+                    <div style={subHeadStyle}>{t("remote.modeLabel")}</div>
+                    <div style={{ ...rowStyle, marginTop: 8 }}>
+                      <ConfigButton
+                        variant={mode === "quick" ? "primary" : "secondary"}
+                        size="small"
+                        onClick={() => setModeDraft("quick")}
+                        disabled={busy !== null}
+                      >
+                        {t("remote.modeQuick")}
+                      </ConfigButton>
+                      <ConfigButton
+                        variant={mode === "named" ? "primary" : "secondary"}
+                        size="small"
+                        onClick={() => setModeDraft("named")}
+                        disabled={busy !== null}
+                      >
+                        {t("remote.modeNamed")}
+                      </ConfigButton>
+                    </div>
+
+                    {mode === "named" ? (
+                      <>
+                        <div style={{ ...rowStyle, marginTop: 10 }}>
+                          <span style={labelStyle}>{t("remote.namedTokenLabel")}</span>
+                          <input
+                            type="password"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={tokenDraft}
+                            onChange={(e) => setTokenDraft(e.target.value)}
+                            placeholder={config?.hasToken ? t("remote.namedTokenSaved") : t("remote.namedTokenPlaceholder")}
+                            style={fieldStyle}
+                            aria-label={t("remote.namedTokenLabel")}
+                          />
+                        </div>
+                        <div style={rowStyle}>
+                          <span style={labelStyle}>{t("remote.namedHostnameLabel")}</span>
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={hostnameDraft}
+                            onChange={(e) => setHostnameDraft(e.target.value.trim().toLowerCase())}
+                            placeholder={t("remote.namedHostnamePlaceholder")}
+                            style={fieldStyle}
+                            aria-label={t("remote.namedHostnameLabel")}
+                          />
+                        </div>
+                        <div style={rowStyle}>
+                          <ConfigButton
+                            variant="primary"
+                            size="small"
+                            onClick={saveTunnelConfig}
+                            disabled={busy !== null || !hostnameDraft.trim() || (!config?.hasToken && !tokenDraft.trim())}
+                          >
+                            {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
+                          </ConfigButton>
+                          <ConfigButton
+                            variant="ghost"
+                            size="small"
+                            onClick={clearTunnelConfig}
+                            disabled={busy !== null || (!config?.hasToken && !config?.hostname)}
+                          >
+                            {t("remote.namedClear")}
+                          </ConfigButton>
+                        </div>
+                        <div style={hintStyle}>{t("remote.namedSetupHint", { port: String(info.port) })}</div>
+                        {!config?.hasToken && !tokenDraft.trim() ? <div style={hintStyle}>{t("remote.namedNotConfigured")}</div> : null}
+                      </>
+                    ) : (
+                      <>
+                        <div style={hintStyle}>{config?.mode === "named" ? t("remote.switchToQuickHint") : t("remote.modeHint")}</div>
+                        {config?.mode === "named" ? (
+                          <div style={rowStyle}>
+                            <ConfigButton
+                              variant="secondary"
+                              size="small"
+                              onClick={saveTunnelConfig}
+                              disabled={busy !== null}
+                            >
+                              {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
+                            </ConfigButton>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </>
+                ),
+              })}
             </div>
 
-            {/* Which kind of tunnel: one or the other, saved explicitly. */}
-            <div style={{ ...rowStyle, alignItems: "flex-start" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.modeLabel")}</div>
-                <div style={hintStyle}>{t("remote.modeHint")}</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                  <ConfigButton
-                    variant={mode === "quick" ? "primary" : "secondary"}
-                    size="small"
-                    onClick={() => setModeDraft("quick")}
-                    disabled={busy !== null}
-                  >
-                    {t("remote.modeQuick")}
-                  </ConfigButton>
-                  <ConfigButton
-                    variant={mode === "named" ? "primary" : "secondary"}
-                    size="small"
-                    onClick={() => setModeDraft("named")}
-                    disabled={busy !== null}
-                  >
-                    {t("remote.modeNamed")}
-                  </ConfigButton>
-                </div>
-                {mode === "quick" ? <div style={hintStyle}>{t("remote.tunnelHint")}</div> : null}
-              </div>
-            </div>
-
-            {mode === "named" ? (
-              <div style={{ ...rowStyle, alignItems: "flex-start", flexDirection: "column", gap: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={labelStyle}>{t("remote.namedTokenLabel")}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={tokenDraft}
-                      onChange={(e) => setTokenDraft(e.target.value)}
-                      placeholder={config?.hasToken ? t("remote.namedTokenSaved") : t("remote.namedTokenPlaceholder")}
-                      style={fieldStyle}
-                      aria-label={t("remote.namedTokenLabel")}
-                    />
-                  </div>
-                  <div style={hintStyle}>{t("remote.namedSetupHint", { port: String(info.port) })}</div>
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={labelStyle}>{t("remote.namedHostnameLabel")}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                    <input
-                      type="text"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={hostnameDraft}
-                      onChange={(e) => setHostnameDraft(e.target.value.trim().toLowerCase())}
-                      placeholder={t("remote.namedHostnamePlaceholder")}
-                      style={fieldStyle}
-                      aria-label={t("remote.namedHostnameLabel")}
-                    />
-                  </div>
-                  {!config?.hasToken && !tokenDraft.trim() ? (
-                    <div style={hintStyle}>{t("remote.namedNotConfigured")}</div>
-                  ) : null}
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <ConfigButton
-                    variant="primary"
-                    size="small"
-                    onClick={saveTunnelConfig}
-                    disabled={busy !== null || !hostnameDraft.trim() || (!config?.hasToken && !tokenDraft.trim())}
-                  >
-                    {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
-                  </ConfigButton>
-                  <ConfigButton
-                    variant="ghost"
-                    size="small"
-                    onClick={clearTunnelConfig}
-                    disabled={busy !== null || (!config?.hasToken && !config?.hostname)}
-                  >
-                    {t("remote.namedClear")}
-                  </ConfigButton>
-                </div>
-              </div>
-            ) : (
-              <div style={{ ...rowStyle, alignItems: "center" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={hintStyle}>{config?.mode === "named" ? t("remote.switchToQuickHint") : t("remote.modeHint")}</div>
-                </div>
-                <ConfigButton
-                  variant="secondary"
-                  size="small"
-                  onClick={saveTunnelConfig}
-                  disabled={busy !== null || config?.mode === "quick"}
-                >
-                  {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
-                </ConfigButton>
-              </div>
-            )}
-
-            <div style={rowStyle}>
-              <div style={{ minWidth: 0 }}>
-                <div style={labelStyle}>{t("remote.autoStartLabel")}</div>
-                <div style={hintStyle}>{t("remote.autoStartHint")}</div>
-              </div>
-              <ConfigSwitch
-                checked={config?.autoStart === true}
-                disabled={busy !== null}
-                label={t("remote.autoStartLabel")}
-                onChange={(next) => void toggleAutoStart(next)}
-              />
-            </div>
-
-            {tunnelOrigin ? pairingBlock("public", tunnelOrigin, "remote.codeHintPublic") : (
-              <p style={hintStyle}>{t("remote.publicNeedsTunnel")}</p>
-            )}
-            {!info.pairing.public.enabled ? (
-              <ConfigNotice>{t("remote.publicCodeOffNotice")}</ConfigNotice>
-            ) : null}
             {info.passwordEnabled ? <ConfigNotice>{t("remote.envPasswordNotice")}</ConfigNotice> : null}
           </>
         ) : null}

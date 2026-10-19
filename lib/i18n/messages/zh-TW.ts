@@ -120,6 +120,13 @@ export const zhTWLocale: LocalePlugin = {
     "persona.filter": "篩選人設…",
     "persona.empty": "沒有人設",
 
+    "remote.tagLan": "同一個 Wi-Fi",
+    "remote.tagTailscale": "任何網路 · 位址不變",
+    "remote.tagPublic": "任何網路 · 不用裝",
+    "remote.addressPending": "尚無位址",
+    "remote.qrEmptyNoAddress": "這扇門有位址後，二維碼出現在這裡",
+    "remote.qrEmptyTailscale": "登入 Tailscale 後，二維碼出現在這裡",
+    "remote.qrEmptyPublic": "通道啟動後，二維碼出現在這裡",
     "remote.heading": "遠端存取",
     "remote.description": "給其他裝置留三扇門，互相獨立、各有自己的配對碼和二維碼：區域網路（同一個 Wi-Fi）、Tailscale（跨任何網路的私有內網）、公網隧道（任意網路、不用裝 App）。每一扇都可以單獨關閉。本機永遠不需要任何驗證。",
     "remote.loading": "正在讀取本機位址……",

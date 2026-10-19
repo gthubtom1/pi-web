@@ -120,6 +120,13 @@ export const enLocale: LocalePlugin = {
     "persona.filter": "Filter personas…",
     "persona.empty": "No personas",
 
+    "remote.tagLan": "Same Wi-Fi",
+    "remote.tagTailscale": "Any network · fixed address",
+    "remote.tagPublic": "Any network · nothing to install",
+    "remote.addressPending": "no address yet",
+    "remote.qrEmptyNoAddress": "The QR appears here once this door has an address.",
+    "remote.qrEmptyTailscale": "The QR appears here after Tailscale is signed in.",
+    "remote.qrEmptyPublic": "The QR appears here once the tunnel is running.",
     "remote.heading": "Remote access",
     "remote.description": "Three doors for other devices, each independent and each with its own pairing code and QR: the local network (same Wi-Fi), Tailscale (a private network across any connection) and a public tunnel (any network, nothing to install). Any of them can be switched off on its own. This machine never asks for anything.",
     "remote.loading": "Reading this machine's addresses…",

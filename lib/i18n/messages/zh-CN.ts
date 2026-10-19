@@ -120,6 +120,13 @@ export const zhCNLocale: LocalePlugin = {
     "persona.filter": "筛选人设…",
     "persona.empty": "没有人设",
 
+    "remote.tagLan": "同一个 Wi-Fi",
+    "remote.tagTailscale": "任何网络 · 地址不变",
+    "remote.tagPublic": "任何网络 · 不用装",
+    "remote.addressPending": "暂无地址",
+    "remote.qrEmptyNoAddress": "这扇门有地址后，二维码出现在这里",
+    "remote.qrEmptyTailscale": "登录 Tailscale 后，二维码出现在这里",
+    "remote.qrEmptyPublic": "隧道启动后，二维码出现在这里",
     "remote.heading": "远程访问",
     "remote.description": "给其他设备留三扇门，互相独立、各有自己的配对码和二维码：局域网（同一个 Wi-Fi）、Tailscale（跨任何网络的私有内网）、公网隧道（任意网络、不用装 App）。每一扇都可以单独关闭。本机永远不需要任何验证。",
     "remote.loading": "正在读取本机地址……",

@@ -42,6 +42,17 @@ back; otherwise every read would hand out a different code).
   DNS failure names `*.trycloudflare.com` explicitly, because a phone on the same
   resolver will fail the same way.
 
+### The panel: three cards, three QRs (`components/RemoteAccessSection.tsx`)
+
+With three doors open at once, "which code belongs to which QR" has to be answerable at a glance, so the
+panel renders three numbered CARDS (border, header row, body | QR) instead of one long column of
+sections: every card repeats the same order — number, name, what it is (`remote.tag*`), the pairing
+switch with its caption, then 配对码 → 地址 → its QR. Each card's QR occupies the same fixed square
+(`QR_SLOT`) even when that door has no address yet; the empty square is a dashed placeholder with a
+one-line reason (`remote.qrEmpty*`), which keeps the three cards aligned instead of letting the page
+jump as a tunnel starts or stops. The public card carries the rest below a divider (status and its
+buttons, autoStart, tunnel mode and the fixed-domain form).
+
 ## Public tunnel (`lib/tunnel.ts`, `lib/dynamic-hosts.ts`, `app/api/remote/route.ts`)
 
 - A Cloudflare **quick tunnel** (`cloudflared tunnel --url http://127.0.0.1:<port>`) exposes a random
