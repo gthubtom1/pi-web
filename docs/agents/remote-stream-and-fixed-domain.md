@@ -45,3 +45,19 @@
 3. 电脑休眠唤醒 / cloudflared 被杀 → 隧道自动恢复，地址不变（命名隧道）。
 4. 设置里改主机名 → 保存需确认 → 旧地址失效、新地址生效；代码中搜不到任何域名/token 字面量。
 5. `tsc` / `lint` / 相关测试全过；`npm run deploy` 后由全局 `pi-web` 验证。
+
+## 剩余任务清单（勾选式，做完一条勾一条）
+
+- [ ] **C1** `lib/tunnel.ts`：新增 `mode: "quick" | "named"` 与命名隧道启动（`cloudflared tunnel run --token <token>`），主机名从配置读、运行时进白名单
+- [ ] **C2** `~/.pi/agent/pi-web-tunnel.json`（0600）读写：`{ mode, token, hostname, autoStart }`；token 不落日志
+- [ ] **C3** `/api/remote`：命名隧道 启/停/状态；token 与主机名 **保存需确认**、可清空；`GET` 不回传 token 明文（只回 `hasToken`）
+- [ ] **C4** 设置 › 远程访问：新增「固定域名」块（token 打码框 + 主机名框 + 保存/确认/清空 + 启停 + 状态），与「快速隧道」二选一
+- [ ] **B1** 隧道保活：cloudflared 退出后指数退避自动重启，URL/白名单随之更新；关闭时清理
+- [ ] **B2** 自启开关（默认关）：`pi-web` 起来后自动拉起（quick 或 named 按 mode）
+- [ ] **B3** 面板显示「当前地址 + 复制」，并提示不要用浏览器历史里的旧地址
+- [ ] **A1** `bin/pi-web-server.js`：自建 server —— 普通请求交给 Next，`/api/agent/:id/ws` 走 upgrade
+- [ ] **A2** WS 鉴权：复用 session cookie / 配对码，scope 由 Host 决定；桥接内部 loopback SSE（每条 `data:` → 一帧）
+- [ ] **A3** 前端：`lib/agent-event-connection.ts` 优先 WS，失败退回 SSE；不改扩展 API
+- [ ] **A4** 轮询兜底：3~5s 无事件 → 1.5s 拉 `/api/sessions/:id/context` 渲染；恢复即回推送
+- [ ] **A5** 设置开关 `realtime: auto | ws | poll`（默认 auto）
+- [ ] **V1** `tsc` / `lint` / 相关测试；`npm run deploy`；按上面「验收清单」逐条过
