@@ -1,52 +1,39 @@
 # Remote access: password, phone pairing, public tunnel
 
-## The password (`lib/web-secret.ts`, `bin/pi-web.js`)
+## Pairing, per entry (`lib/remote-pairing.ts`)
 
-- **The local browser never signs in.** `proxy.ts` treats a loopback `Host`
-  (`127.0.0.0/8`, `localhost`, `::1`) as the person at the keyboard and skips auth
-  (`isLoopbackHostHeader()`, lib/request-security.ts). The CLI opens exactly that
-  URL — Next's own `Network: http://0.0.0.0:…` line is not browsable (browsers
-  refuse it; through a proxy it answers 502), which is why `pi-web` used to look
-  broken while it was running fine.
-- Everything else — LAN, Tailscale, the tunnel — needs the password. Precedence:
-  `PI_WEB_PASSWORD` non-empty → that password; `PI_WEB_PASSWORD` empty → remote auth
-  off; otherwise `<agentDir>/pi-web-auth.json` says whether a password is required
-  (Settings › Remote access switch, default on, corrupt file → on) and a random
-  32-char secret is generated once into `<agentDir>/pi-web-secret` (mode 0600). There
-  is deliberately **no password in the source**.
-- The switch exists because Windows cannot set an empty environment variable
-  (`set X=` deletes it), so "empty `PI_WEB_PASSWORD` disables auth" only works on
-  POSIX. Turning it off opens the port to every device that can reach it.
-- **The loopback exemption trusts `Host`, which a browser cannot forge but a script
-  can.** On an untrusted network, bind loopback only (`--hostname 127.0.0.1`) and
-  reach the phone through the tunnel or Tailscale; the tunnel still works because
-  cloudflared connects to 127.0.0.1 and its hostname is not loopback, so it needs
-  the password.
-- `bin/pi-web.js` resolves the same secret before opening the browser and prints it
-  at startup as the *remote* password, next to "On this machine (no password
-  needed)".
-- **Settings › Remote access manages it live**: `reveal-password` returns the stored
-  value (never an env-supplied one), `set-password` writes a chosen one (>= 6 chars,
-  and it turns remote auth back on), `randomize-password` stores a fresh 32-char
-  one. The stored secret is read on every request, so a change applies immediately.
-- **The QR and the copied link carry the password**: `<origin>/?pw=<password>`, and
-  `/login` redeems it exactly like the form (`app/login/page.tsx`). That is the DSH
-  behaviour - the link is the key, the phone types nothing. The one-time 2-minute
-  `?pair=` code stays for a borrowed phone. A copied link *is* a credential: do not
-  post it anywhere public.
-- Turning the switch off does not dead-end the panel: the QR/one-time code need a
-  password (the tunnel too - it would otherwise expose the agent to the internet),
-  so the tunnel row offers "Create a password and start" instead of refusing.
-
-## Phone pairing (`lib/pairing.ts`, `POST /api/web-auth/pair`, `app/login/page.tsx`)
-
-- Settings › Remote access issues a token `<expiresAtMs>.<hmac>` signed with the current password
-  (2 min TTL). It carries no password, is single-use per process (in-memory set, so a restart allows
-  reuse within the TTL), and a forged/expired/reused token is a 401.
-- The QR URL is `<origin>/?pair=<token>`; `/login` redeems it once (`pairAttemptedRef` survives React
-  StrictMode's double effect) and replaces the location with `safeDestination()`. `proxy.ts` lets
-  `/api/web-auth/pair` through unauthenticated — that is the point of pairing.
-- The cookie's `secure` flag follows `x-forwarded-proto`, which a Cloudflare tunnel sends as `https`.
+- Local access needs nothing: a loopback `Host` (`127.0.0.0/8`, `localhost`, `::1` —
+  `isLoopbackHostHeader()`) skips auth, and the CLI opens exactly that URL (Next's
+  `Network: http://0.0.0.0:…` line is a bind address; browsers refuse it and a proxy
+  answers 502).
+- Every other device pairs with a **short code**, one per entry: **lan** (same Wi-Fi)
+  and **public** (the tunnel). Each scope stores `{ enabled, code, secret }` in
+  `<agentDir>/pi-web-remote-pairing.json`, plaintext on purpose — the panel re-reads
+  the code after a restart (ToDesk-style). Codes are 8 characters from a
+  confusion-reduced alphabet (no I/L/O/0/1), or a custom 6-12 A-Z0-9; the secret is
+  24 random bytes for the QR. Both redeem the same credential.
+- `scopeForHost()` picks the scope from the Host: the tunnel's own hostname (from
+  `lib/dynamic-hosts.ts`) is `public`, anything else is `lan`. A LAN code therefore
+  never opens the public entry (tested), and the switches are independent.
+- **The QR carries the secret in the URL fragment**: `<origin>/#pair=<secret>`. The
+  fragment never reaches the server, a log or a Referer; the login page reads it,
+  posts it to `/api/web-auth/pair`, and strips it from the address bar afterwards. A
+  scanned device types nothing. `?pair=` is still honoured for old links.
+- `POST /api/web-auth` accepts `{ code }` (typed) or `{ password }` — the latter only
+  when `PI_WEB_PASSWORD` pins an operator password. Codes share **one** throttle
+  (`lib/auth-throttle.ts`): behind a tunnel every request arrives from cloudflared on
+  127.0.0.1, so a per-source lock would let a stranger lock the owner out.
+- The session cookie is signed with `getWebAuthKey()`: the operator password when set,
+  otherwise a random key generated once in `<agentDir>/pi-web-session-key` (so a
+  paired phone stays paired across restarts). The old generated "password" is no
+  longer an auth decision — that was the confusion where the first run was a login
+  wall.
+- A scope with `enabled: false` needs no code at all. The public one refuses to be
+  silently open: starting the tunnel turns it on, and the panel warns when it is off.
+- `tunnel-check` fetches `<tunnel-url>/api/web-auth` from the server, so the whole
+  public path (DNS -> Cloudflare edge -> cloudflared -> app) is tested on demand; a
+  DNS failure names `*.trycloudflare.com` explicitly, because a phone on the same
+  resolver will fail the same way.
 
 ## Public tunnel (`lib/tunnel.ts`, `lib/dynamic-hosts.ts`, `app/api/remote/route.ts`)
 

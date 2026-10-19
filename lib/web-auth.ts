@@ -1,4 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { resolveAgentDir } from "./agent-dir";
 import { resolveWebPassword } from "./web-secret";
 
 export const PI_WEB_AUTH_USERNAME = "pi";
@@ -14,6 +17,39 @@ export function getWebPassword(): string {
   return resolveWebPassword();
 }
 
+/** Signature key for session cookies when no password is configured. */
+export const WEB_SESSION_KEY_FILE_NAME = "pi-web-session-key";
+
+/**
+ * The key that signs session cookies. A configured password signs them; with no
+ * password (remote pairing only) a random key generated once in the agent dir does,
+ * so a paired device keeps its cookie across restarts.
+ */
+export function getWebAuthKey(agentDir: string = resolveAgentDir()): string {
+  const password = getWebPassword();
+  if (isWebPasswordEnabled(password)) return password;
+  const path = join(agentDir, WEB_SESSION_KEY_FILE_NAME);
+  try {
+    if (existsSync(path)) {
+      const value = readFileSync(path, "utf-8").trim();
+      if (value) return value;
+    }
+    const generated = randomBytes(32).toString("base64url");
+    try {
+      if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
+    } catch {
+      // writeFileSync reports a real failure
+    }
+    writeFileSync(path, `${generated}
+`, { encoding: "utf-8", mode: 0o600 });
+    return generated;
+  } catch {
+    // Unwritable agent dir: the cookie lasts only for this process.
+    return (globalThis as { __piWebVolatileAuthKey?: string }).__piWebVolatileAuthKey
+      ??= randomBytes(32).toString("base64url");
+  }
+}
+
 function hashSecret(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
 }
@@ -26,6 +62,22 @@ export function isWebPasswordEnabled(
   password: string | undefined = getWebPassword(),
 ): password is string {
   return typeof password === "string" && password.length > 0;
+}
+
+/**
+ * Whether the operator pinned a remote password (`PI_WEB_PASSWORD`).
+ *
+ * Remote access is gated by pairing codes (per entry) and by this password only
+ * when an operator sets one; the generated secret in the agent dir is just the
+ * cookie-signing key and must NOT be read as "a password is required".
+ */
+export function isOperatorPasswordEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return typeof env.PI_WEB_PASSWORD === "string" && env.PI_WEB_PASSWORD.length > 0;
+}
+
+/** The operator password itself, or "" when none is pinned. */
+export function getOperatorPassword(env: NodeJS.ProcessEnv = process.env): string {
+  return isOperatorPasswordEnabled(env) ? String(env.PI_WEB_PASSWORD) : "";
 }
 
 export function isValidWebPassword(

@@ -343,7 +343,7 @@ export function SystemPromptsConfig({ cwd, embedded = false, onClose }: { cwd: s
       {error ? <p role="alert" className="settings-general-error" style={{ margin: "8px 16px" }}>{t("prompts.saveFailed")}{error}</p> : null}
       <ConfigSplitView>
         <ConfigSidebar>
-          <ConfigSidebarList>
+          <ConfigSidebarList className="is-fill">
             {loading ? (
               <div style={{ padding: 10, color: "var(--text-dim)", fontSize: 12 }}>{t("prompts.loading")}</div>
             ) : (
@@ -358,11 +358,21 @@ export function SystemPromptsConfig({ cwd, embedded = false, onClose }: { cwd: s
                 </ConfigSidebarItem>
 
                 {/* Personas grow without limit, so they live in a box of their own
-                    that scrolls inside the sidebar instead of pushing everything
-                    else down. Chips wrap two per row and the scrollbar is hidden. */}
+                    that fills the rest of the sidebar and scrolls inside it. The
+                    import entry stays above the box: it is an action, not a persona. */}
                 <ConfigSidebarGroupLabel aside={
                   <ConfigButton size="small" variant="ghost" onClick={() => void createPersona()} disabled={saving}>+ {t("prompts.new")}</ConfigButton>
                 }>{t("prompts.groupPersonas")}</ConfigSidebarGroupLabel>
+                {legacy.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => void importLegacy()}
+                    disabled={saving}
+                    style={{ margin: "0 8px 6px", padding: "5px 8px", fontSize: 11, textAlign: "left", background: "none", border: "1px dashed var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+                  >
+                    {t("prompts.importLegacy")}
+                  </button>
+                ) : null}
                 <div className="config-chip-box" role="listbox" aria-label={t("prompts.groupPersonas")}>
                   {personas.length === 0 ? (
                     <div style={{ padding: "4px 2px", color: "var(--text-dim)", fontSize: 12 }}>{t("prompts.emptyList")}</div>
@@ -382,16 +392,6 @@ export function SystemPromptsConfig({ cwd, embedded = false, onClose }: { cwd: s
                     </button>
                   ))}
                 </div>
-                {legacy.trim() ? (
-                  <button
-                    type="button"
-                    onClick={() => void importLegacy()}
-                    disabled={saving}
-                    style={{ margin: "0 8px 8px", padding: "5px 8px", fontSize: 11, textAlign: "left", background: "none", border: "1px dashed var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
-                  >
-                    {t("prompts.importLegacy")}
-                  </button>
-                ) : null}
               </>
             )}
           </ConfigSidebarList>

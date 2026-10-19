@@ -78,8 +78,8 @@ export function ConfigSidebar({ children }: { children: ReactNode }) {
   return <aside className="config-sidebar">{children}</aside>;
 }
 
-export function ConfigSidebarList({ children }: { children: ReactNode }) {
-  return <div className="config-sidebar-list">{children}</div>;
+export function ConfigSidebarList({ children, className }: { children: ReactNode; /** `is-fill` lets one child stretch to the bottom (Persona & Rules). */ className?: string }) {
+  return <div className={["config-sidebar-list", className].filter(Boolean).join(" ")}>{children}</div>;
 }
 
 /** A sidebar group heading; `aside` sits at its right edge. */

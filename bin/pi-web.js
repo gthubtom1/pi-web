@@ -12,8 +12,6 @@ if (!isNodeVersionSupported(process.versions.node)) {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const crypto = require("crypto");
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const os = require("os");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
@@ -97,67 +95,22 @@ function getLanUrls(port) {
   return real.length > 0 ? real : virtual;
 }
 
-// pi's agent directory, resolved like the SDK's getAgentDir().
-function getAgentDir() {
-  const configured = process.env.PI_CODING_AGENT_DIR;
-  if (!configured) return path.join(os.homedir(), ".pi", "agent");
-  if (configured === "~") return os.homedir();
-  if (configured.startsWith("~/") || configured.startsWith("~\\")) {
-    return path.join(os.homedir(), configured.slice(2));
-  }
-  return configured;
-}
-
-/**
- * The password the browser will ask for.
- *   - `PI_WEB_PASSWORD` set and non-empty: the operator's own password (not echoed).
- *   - `PI_WEB_PASSWORD` set but empty: authentication is off.
- *   - otherwise: a strong random secret generated once into
- *     `<agentDir>/pi-web-secret`, printed here so the first login is possible.
- * Same precedence as lib/web-secret.ts, which the server uses.
- */
-function describePassword() {
+// Remote access is gated by the PAIRING CODES in Settings > Remote access (one for
+// the local network, one for the public tunnel); this machine never asks. Only an
+// operator-pinned PI_WEB_PASSWORD is mentioned (never its value).
+function describeAccess() {
   if (process.env.PI_WEB_PASSWORD !== undefined) {
     if (process.env.PI_WEB_PASSWORD === "") {
-      return { kind: "disabled", lines: ["Remote access is open (PI_WEB_PASSWORD is empty): any device may use the agent."] };
+      return { lines: ["Remote access: no password (PI_WEB_PASSWORD is empty)."] };
     }
-    return { kind: "env", lines: ["Remote password: from PI_WEB_PASSWORD (not echoed)."] };
+    return { lines: ["Remote access also requires the PI_WEB_PASSWORD you set (not echoed)."] };
   }
-  const dir = getAgentDir();
-  const file = path.join(dir, "pi-web-secret");
-  // Settings › Remote access can switch authentication off without an env var
-  // (Windows cannot set an empty PI_WEB_PASSWORD). Same file the server reads.
-  try {
-    const authFile = path.join(dir, "pi-web-auth.json");
-    if (fs.existsSync(authFile)) {
-      const parsed = JSON.parse(fs.readFileSync(authFile, "utf-8"));
-      if (parsed?.requirePassword === false) {
-        return { kind: "disabled", lines: ["Authentication is off (Settings \u203a Remote access). Anyone who can reach this port may use the agent."] };
-      }
-    }
-  } catch {
-    // a corrupt file keeps authentication on, as the server does
-  }
-  try {
-    let secret = "";
-    if (fs.existsSync(file)) secret = fs.readFileSync(file, "utf-8").trim();
-    if (!secret) {
-      secret = crypto.randomBytes(24).toString("base64url");
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, `${secret}\n`, { encoding: "utf-8", mode: 0o600 });
-      try { fs.chmodSync(file, 0o600); } catch { /* Windows: profile ACLs apply */ }
-    }
-    return {
-      kind: "generated",
-      lines: [
-        `Remote password: ${secret}`,
-        `  stored in ${file} (delete it to rotate)`,
-        "  Turn it off in Settings › Remote access if you only use this machine.",
-      ],
-    };
-  } catch (error) {
-    return { kind: "error", lines: ["Could not read or create the login secret: " + (error instanceof Error ? error.message : String(error))] };
-  }
+  return {
+    lines: [
+      "Pairing codes for phones: Settings › Remote access (LAN and public tunnel each have one).",
+      "This machine needs no code.",
+    ],
+  };
 }
 
 function handlesWildcardHost(hostname) {
@@ -255,8 +208,8 @@ function startServer({ port, hostname, openBrowser }) {
       const nl = String.fromCharCode(10);
       // 127.0.0.1, not the wildcard: `Network: http://0.0.0.0:...` (Next's own line)
       // cannot be opened in a browser — through a proxy it answers 502.
-      const auth = describePassword();
-      process.stdout.write(nl + "  On this machine (no password needed):" + nl + "    " + url + nl);
+      const auth = describeAccess();
+      process.stdout.write(nl + "  On this machine (no code needed):" + nl + "    " + url + nl);
       if (handlesWildcardHost(hostname)) {
         process.stdout.write("    (Next's \"Network: http://0.0.0.0:...\" line above is the bind address, not a link: browsers refuse it and a proxy answers 502.)" + nl);
       }
@@ -264,7 +217,7 @@ function startServer({ port, hostname, openBrowser }) {
         const lanUrls = getLanUrls(port);
         if (lanUrls.length > 0) {
           const lines = lanUrls.map((u) => "    " + u).join(nl);
-          process.stdout.write(nl + "  From a phone or another device (password needed):" + nl + lines + nl);
+          process.stdout.write(nl + "  From a phone or another device (needs a pairing code):" + nl + lines + nl);
         }
       }
       process.stdout.write(nl + "  " + auth.lines.join(nl + "  ") + nl + nl);

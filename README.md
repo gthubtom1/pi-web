@@ -80,23 +80,32 @@ pi-web -p 8080 --no-open   # binds 0.0.0.0; add -H 127.0.0.1 to keep it local-on
 
 ### Remote Access
 
-**On this machine there is no password.** Pi Web binds `0.0.0.0` so a phone can reach it, but the browser on the machine itself (`http://127.0.0.1:30141` or `localhost`) is always let in, and the CLI opens exactly that URL — `http://0.0.0.0:30141` is not a browsable address (browsers refuse it; through a proxy it answers 502).
+**This machine needs nothing.** Pi Web binds `0.0.0.0` so a phone can reach it, but a
+browser on the machine itself (`http://127.0.0.1:30141` or `localhost`) is always let
+in, and the CLI opens exactly that URL — `http://0.0.0.0:30141` is not a browsable
+address (browsers refuse it; through a proxy it answers 502).
 
-**Other devices need a password.** On first run Pi Web generates a strong random one, prints it at startup and stores it in `~/.pi/agent/pi-web-secret`; there is deliberately no password in the source. Delete that file to get a new one, or set your own:
+**Other devices pair once, with a short code.** Settings › Remote access has two
+independent doors, one below the other, each with its own code and its own switch:
 
-```bash
-PI_WEB_PASSWORD='a-long-random-password' pi-web
-```
+- **Local network** — a phone on the same Wi-Fi. Its code works only there.
+- **Public tunnel** — an outbound-only Cloudflare quick tunnel
+  (`https://<random>.trycloudflare.com`), reachable from any network without an app.
+  Keep this code on: it is the only thing between the internet and an agent that can
+  run commands.
 
-An empty `PI_WEB_PASSWORD` (POSIX) or **Settings › Remote access › Require a password** (off) disables the remote password entirely — only on a trusted, isolated network: with it off, any device that reaches the port can run commands through the agent. **Settings › Remote access** shows that password, lets you replace it with a fixed one or a new random one, and its **QR / copied link carries it** — a phone opens the app without typing anything (the same trick DSH uses: the link is the key). A one-time 2-minute code is there too, for a phone you do not want to keep a password for. The same panel starts a Cloudflare quick tunnel for access from another network.
+Each door shows an 8-character code (type it on the phone) and a QR code. **The QR
+carries a high-entropy secret in the URL fragment**, so scanning signs the device in
+without typing; the fragment never reaches the server, a log or a Referer. Codes can
+be replaced with a new random one or typed by hand (6-12 letters/digits), and either
+door can be switched off (only do that on a network you fully trust). "Test it"
+fetches the public URL through Cloudflare and back, so a broken public path is named
+instead of guessed.
 
-The loopback exemption trusts the request's `Host` name, which a browser cannot forge (a remote browser always presents its own address). A script on the LAN could send `Host: 127.0.0.1` and be let in, so on an untrusted network bind only loopback and expose the phone through the tunnel or Tailscale:
-
-```bash
-pi-web --hostname 127.0.0.1     # LAN off; the tunnel still reaches 127.0.0.1:30141
-```
-
-Password authentication does not encrypt the connection. A public tunnel is HTTPS, but a LAN address is plain HTTP: do not expose Pi Web over plain HTTP to the internet; add a reverse proxy's external hostname to `PI_WEB_ALLOWED_HOSTS` (this allow-list does not change the address Pi Web binds to).
+`PI_WEB_PASSWORD` remains an optional operator override: when set, every remote
+browser also needs that password (API clients may use Basic Auth, username `pi`).
+Password authentication does not encrypt the connection — the tunnel is HTTPS, a LAN
+address is plain HTTP — so do not expose Pi Web over plain HTTP to the internet.
 
 ### HTTP Proxy
 

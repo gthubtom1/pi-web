@@ -2626,6 +2626,21 @@ select.mcp-add-input {
   }
 }
 
+/* A sidebar whose list holds one growing child (Personas): the fixed rows keep
+   their height and the box takes everything that is left, with its own scroll. */
+.config-sidebar-list.is-fill {
+  display: flex;
+  flex-direction: column;
+}
+.config-sidebar-list.is-fill > * {
+  flex: none;
+}
+/* …except the persona box, which takes everything that is left. */
+.config-sidebar-list.is-fill > .config-chip-box {
+  flex: 1 1 auto;
+  min-height: 88px;
+}
+
 /* Settings › Persona & Rules: the persona list grows, the global entries do not.
    The box scrolls on its own (with no visible scrollbar: a thin OS bar in a 220px
    column is noise, and the border already says "this scrolls"), and chips wrap two
@@ -2634,9 +2649,10 @@ select.mcp-add-input {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  /* Five 30px rows minus the padding: a whole number of rows, so the box never
-     ends on a half-clipped chip. */
-  max-height: 160px;
+  /* Fills whatever the fixed rows leave, and scrolls inside: the box never grows
+     with its content and never cuts a row in half. */
+  flex: 1 1 auto;
+  min-height: 88px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 5px;

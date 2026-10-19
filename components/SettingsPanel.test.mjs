@@ -11,5 +11,8 @@ test("the trust dialog Settings › MCP opens stacks above Settings", () => {
 });
 
 test("the login page returns only to a destination safeLoginDestination() accepts", () => {
-  assert.match(loginSource, /safeLoginDestination\(destination, window\.location\.origin\)/);
+  // The page resolves its destination through the helper, and drops the pairing
+  // secret from it before navigating.
+  assert.match(loginSource, /safeLoginDestination\(next, window\.location\.origin\)/);
+  assert.match(loginSource, /withoutSecret\(safeDestination\(\)\)/);
 });

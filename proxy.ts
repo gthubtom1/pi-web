@@ -12,10 +12,13 @@ import {
 import {
   isValidWebSessionToken,
   isValidBasicAuthorization,
-  isWebPasswordEnabled,
-  getWebPassword,
+  isOperatorPasswordEnabled,
+  getWebAuthKey,
+  getOperatorPassword,
   PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
+import { getDynamicHosts } from "@/lib/dynamic-hosts";
+import { readRemotePairing, scopeForHost } from "@/lib/remote-pairing";
 
 function tooManyAttempts(retryAfterMs: number): NextResponse {
   return new NextResponse("Too many failed attempts", {
@@ -41,22 +44,36 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  const password = getWebPassword();
   // On this machine there is nothing to protect against: a browser that reaches
   // 127.0.0.1/localhost is the person sitting at the computer. Only other devices
-  // (LAN, Tailscale, the public tunnel) have to sign in, so `pi-web` opens and
-  // works locally without anyone chasing a password.
+  // (LAN, Tailscale, the public tunnel) have to pair, so `pi-web` opens and works
+  // locally without anyone chasing a code.
   const localBrowser = isLoopbackHostHeader(request.headers.get("host"));
-  if (!isWebPasswordEnabled(password) || localBrowser) {
+  if (localBrowser) {
     if (request.nextUrl.pathname === "/login") {
       return NextResponse.redirect(new URL("/", request.url));
     }
     return NextResponse.next();
   }
 
-  let authenticated = isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, password);
+  // Which entry did this arrive on? A LAN/Tailscale address uses the LAN code, the
+  // tunnel's own hostname uses the public code (they are separate switches), and a
+  // configured PI_WEB_PASSWORD still guards everything.
+  const password = getOperatorPassword();
+  const passwordEnabled = isOperatorPasswordEnabled();
+  const scope = scopeForHost(request.headers.get("host"), getDynamicHosts());
+  const scopeRequiresPairing = readRemotePairing()[scope].enabled;
+  if (!passwordEnabled && !scopeRequiresPairing) {
+    if (request.nextUrl.pathname === "/login") {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+    return NextResponse.next();
+  }
+
+  const authKey = getWebAuthKey();
+  let authenticated = isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, authKey);
   const authorization = isApiRequest ? request.headers.get("authorization") : null;
-  if (!authenticated && authorization && /^Basic\s/i.test(authorization)) {
+  if (!authenticated && passwordEnabled && authorization && /^Basic\s/i.test(authorization)) {
     // Every Basic header is a password guess, so it shares the login form's
     // throttle; otherwise any API path (or GET /api/web-auth) answers guesses
     // at full speed. While blocked even the right password is refused, or the
@@ -75,6 +92,8 @@ export function proxy(request: NextRequest) {
   }
   // The login endpoint, and the pairing endpoint a scanned QR redeems, must be
   // reachable before a session exists.
+  // The login endpoint and the pairing endpoint must be reachable before a session
+  // exists (the QR link and the code both land there).
   if (request.nextUrl.pathname === "/api/web-auth"
     || request.nextUrl.pathname === "/api/web-auth/pair") return NextResponse.next();
 
