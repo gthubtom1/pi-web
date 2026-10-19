@@ -283,6 +283,89 @@ html[data-theme="zenburn"],
   --bg-subtle: rgba(220,220,204,0.04);
 }
 
+/* OpenCode (plugins.aiuo.net/plugins/pi.theme.opencode, palette from
+   anomalyco/opencode). Flat white / near-black, and structure carried by colour:
+   amber headings, jade inline code, cobalt links, cyan list numbers — so code,
+   prose, quotes and tools are distinguishable instead of one grey wall. */
+[data-theme="opencode"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-panel: #f8fafc;
+  --bg-hover: #f1f5f9;
+  --bg-selected: #e9eff7;
+  --border: #d8dee9;
+  --text: #1a1a1a;
+  --text-muted: #57606a;
+  --text-dim: #6b7280;
+  --accent: #d68c27;
+  --accent-hover: #b06915;
+  --accent-contrast: #ffffff;
+  --user-bg: #f1f5f9;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f8fafc;
+  --bg-subtle: rgba(26, 26, 26, 0.04);
+}
+
+html[data-theme="opencode-dark"],
+[data-theme="opencode-dark"] {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --bg-panel: #141414;
+  --bg-hover: #1c1c1c;
+  --bg-selected: #242424;
+  --border: #2e2e2e;
+  --text: #e6e6e6;
+  --text-muted: #a0a0a0;
+  --text-dim: #8a8a8a;
+  --accent: #9d7cd8;
+  --accent-hover: #b294e4;
+  --accent-contrast: #14101c;
+  --user-bg: #141414;
+  --assistant-bg: #0a0a0a;
+  --tool-bg: #121212;
+  --bg-subtle: rgba(255, 255, 255, 0.05);
+}
+
+/* Semantic colours, scoped to the OpenCode pair so every other theme keeps its own. */
+[data-theme="opencode"] .markdown-body :is(h1, h2) { color: #b06915; }
+[data-theme="opencode"] .markdown-body :is(h3, h4, h5, h6) { color: #c47717; }
+[data-theme="opencode"] .markdown-body strong { color: #b06915; }
+[data-theme="opencode"] .markdown-body em { color: #8c6314; }
+[data-theme="opencode"] .markdown-body a { color: #3b7dd8; }
+[data-theme="opencode"] .markdown-body ul > li::marker { color: #3b7dd8; }
+[data-theme="opencode"] .markdown-body ol > li::marker { color: #318795; }
+[data-theme="opencode"] .markdown-body .markdown-inline-code {
+  color: #2c7a43;
+  background: rgba(61, 154, 87, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(61, 154, 87, 0.28);
+}
+[data-theme="opencode"] .markdown-body blockquote {
+  border-left-color: #d68c27;
+  background: rgba(214, 140, 39, 0.07);
+  color: #57606a;
+}
+[data-theme="opencode"] .markdown-code-block { border-color: #d8dee9; }
+[data-theme="opencode"] .markdown-code-header { background: #f8fafc; color: #57606a; }
+
+[data-theme="opencode-dark"] .markdown-body :is(h1, h2, h3, h4, h5, h6) { color: #9d7cd8; }
+[data-theme="opencode-dark"] .markdown-body strong { color: #f5a742; }
+[data-theme="opencode-dark"] .markdown-body em { color: #e5c07b; }
+[data-theme="opencode-dark"] .markdown-body a { color: #7aa2f7; }
+[data-theme="opencode-dark"] .markdown-body ul > li::marker { color: #fab283; }
+[data-theme="opencode-dark"] .markdown-body ol > li::marker { color: #56b6c2; }
+[data-theme="opencode-dark"] .markdown-body .markdown-inline-code {
+  color: #7fd88f;
+  background: rgba(127, 216, 143, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(127, 216, 143, 0.24);
+}
+[data-theme="opencode-dark"] .markdown-body blockquote {
+  border-left-color: #9d7cd8;
+  background: rgba(157, 124, 216, 0.1);
+  color: #a0a0a0;
+}
+[data-theme="opencode-dark"] .markdown-code-block { border-color: #2e2e2e; }
+[data-theme="opencode-dark"] .markdown-code-header { background: #141414; color: #8a8a8a; }
+
 /* WebKit reports dvh/innerHeight without the status-bar strip for installed
    home-screen apps even though the layout still starts at the screen's top.
    In standalone mode there is no browser toolbar to make vh unstable, and vh

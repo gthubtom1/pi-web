@@ -348,32 +348,7 @@ export function SystemPromptsConfig({ cwd, embedded = false, onClose }: { cwd: s
               <div style={{ padding: 10, color: "var(--text-dim)", fontSize: 12 }}>{t("prompts.loading")}</div>
             ) : (
               <>
-                <ConfigSidebarGroupLabel aside={
-                  <ConfigButton size="small" variant="ghost" onClick={() => void createPersona()} disabled={saving}>+ {t("prompts.new")}</ConfigButton>
-                }>{t("prompts.groupPersonas")}</ConfigSidebarGroupLabel>
-                {personas.length === 0 ? (
-                  <div style={{ padding: "6px 10px", color: "var(--text-dim)", fontSize: 12 }}>{t("prompts.emptyList")}</div>
-                ) : personas.map((p) => (
-                  <ConfigSidebarItem
-                    key={p.id}
-                    active={selection?.kind === "persona" && selection.id === p.id}
-                    onClick={() => setSelection({ kind: "persona", id: p.id })}
-                  >
-                    <ConfigSidebarText>{p.name}</ConfigSidebarText>
-                    {defaultId === p.id && <span style={{ fontSize: 10, color: "var(--accent)" }}>★</span>}
-                  </ConfigSidebarItem>
-                ))}
-                {legacy.trim() ? (
-                  <button
-                    type="button"
-                    onClick={() => void importLegacy()}
-                    disabled={saving}
-                    style={{ margin: "6px 10px", padding: "5px 8px", fontSize: 11, textAlign: "left", background: "none", border: "1px dashed var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
-                  >
-                    {t("prompts.importLegacy")}
-                  </button>
-                ) : null}
-
+                {/* Fixed entries first: they never grow, so they stay reachable. */}
                 <ConfigSidebarGroupLabel>{t("prompts.groupGlobal")}</ConfigSidebarGroupLabel>
                 <ConfigSidebarItem active={selection?.kind === "rules"} onClick={() => setSelection({ kind: "rules" })}>
                   <ConfigSidebarText>{t("prompts.rulesNav")}</ConfigSidebarText>
@@ -381,6 +356,42 @@ export function SystemPromptsConfig({ cwd, embedded = false, onClose }: { cwd: s
                 <ConfigSidebarItem active={selection?.kind === "agents"} onClick={() => setSelection({ kind: "agents" })}>
                   <ConfigSidebarText>{t("prompts.agentsNav")}</ConfigSidebarText>
                 </ConfigSidebarItem>
+
+                {/* Personas grow without limit, so they live in a box of their own
+                    that scrolls inside the sidebar instead of pushing everything
+                    else down. Chips wrap two per row and the scrollbar is hidden. */}
+                <ConfigSidebarGroupLabel aside={
+                  <ConfigButton size="small" variant="ghost" onClick={() => void createPersona()} disabled={saving}>+ {t("prompts.new")}</ConfigButton>
+                }>{t("prompts.groupPersonas")}</ConfigSidebarGroupLabel>
+                <div className="config-chip-box" role="listbox" aria-label={t("prompts.groupPersonas")}>
+                  {personas.length === 0 ? (
+                    <div style={{ padding: "4px 2px", color: "var(--text-dim)", fontSize: 12 }}>{t("prompts.emptyList")}</div>
+                  ) : personas.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selection?.kind === "persona" && selection.id === p.id}
+                      aria-current={selection?.kind === "persona" && selection.id === p.id ? "page" : undefined}
+                      className="config-chip"
+                      title={p.name}
+                      onClick={() => setSelection({ kind: "persona", id: p.id })}
+                    >
+                      <span className="config-chip-name">{p.name}</span>
+                      {defaultId === p.id && <span className="config-chip-star" aria-hidden="true">★</span>}
+                    </button>
+                  ))}
+                </div>
+                {legacy.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => void importLegacy()}
+                    disabled={saving}
+                    style={{ margin: "0 8px 8px", padding: "5px 8px", fontSize: 11, textAlign: "left", background: "none", border: "1px dashed var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}
+                  >
+                    {t("prompts.importLegacy")}
+                  </button>
+                ) : null}
               </>
             )}
           </ConfigSidebarList>

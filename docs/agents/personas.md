@@ -64,6 +64,10 @@ conversation. This replaces pi's single global `PERSONALITY.md` with a list, wit
 
 - Settings › **Persona & Rules** (`prompts`): split view of personas plus the two global files, the
   injection-mode switch, "Import PERSONALITY.md", duplicate/delete/default.
+- The sidebar puts the **fixed** entries first (Rules, AGENTS.md) and the **growing** list second:
+  personas live in `.config-chip-box`, a bordered box that scrolls on its own (no visible scrollbar —
+  `scrollbar-width: none` plus a hidden WebKit bar) with chips wrapping two per row. A dozen personas
+  must not push the global rows off the panel, and a long name must not stretch a row.
 - The composer's picker sits beside the model selector. A phone (≤640 px) has no room for its label,
   so it moves into the "More" popover; on a narrow desktop row the measured controls row falls back to
   an icon-only button (`controlsTight`, with hysteresis so it does not flicker). Before that, adding

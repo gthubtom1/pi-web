@@ -17,7 +17,7 @@ import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } fro
 import { MessageView } from "./MessageView";
 import { MarkdownBody } from "./MarkdownBody";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
+import { ChatMinimap, MINIMAP_WIDTH, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
@@ -1523,7 +1523,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         document.body,
       )}
 
-      <div className="relative shrink-0">
+      {/* The minimap is a column beside the messages, not over them; the composer
+          keeps the same inset so its card lines up with the conversation column. */}
+      <div className="relative shrink-0" style={{ paddingRight: isMobile || pendingScrollRestore ? 0 : MINIMAP_WIDTH }}>
         {!isEmptyNew && (
           <div
             style={{

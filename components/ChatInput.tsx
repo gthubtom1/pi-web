@@ -1784,13 +1784,20 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
       style={{
         flexShrink: 0,
         minWidth: 0,
-        margin: 0,
         // The card (border, surface, radius, focus ring) belongs to
         // `.chat-input-shell` (globals.css). Declaring border/background inline here
         // beat that class, so the composer had a shadow but no border and no surface.
-        ...(compact ? { border: 0, background: "transparent" } : null),
+        ...(compact
+          ? { margin: 0, border: 0, background: "transparent" }
+          : {
+              // The card is the conversation column, not the whole pane: a border at
+              // the pane's edges wrapped an 820px field in a much wider ring.
+              margin: "0 auto",
+              width: "100%",
+              maxWidth: "var(--chat-content-max-width, 820px)",
+              boxSizing: "border-box" as const,
+            }),
         padding: compact ? 0 : "10px 14px 8px",
-        paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
         opacity: builtinCommandPending ? 0.5 : 1,
         transition: "opacity 0.15s",
       }}

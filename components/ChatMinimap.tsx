@@ -24,7 +24,7 @@ interface Props {
   turnsBefore: number;
 }
 
-const MINIMAP_WIDTH = 36;
+export const MINIMAP_WIDTH = 36;
 const MAX_NODE_GAP = 50;
 const MINIMAP_PADDING = 12;
 // The lock button sits at the bottom of the rail (6px inset + 30px): nodes stop

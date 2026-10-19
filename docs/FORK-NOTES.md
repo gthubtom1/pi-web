@@ -81,7 +81,10 @@
 - 新增文件：`lib/session-rewind.ts`、`app/api/sessions/[id]/rewind/`、`lib/engineered-prompt.ts`。
 
 ### 2.5 界面适配与主题
-- 暖沙/赤陶配色（`app/globals.css` 的 `:root` / `html.dark`），输入框单层卡片（`.chat-input-shell`）。
+- 暖沙/赤陶配色（`app/globals.css` 的 `:root` / `html.dark`），输入框单层卡片（`.chat-input-shell`），
+  卡片宽度等于对话列（`--chat-content-max-width`）并与消息列对齐（右侧让出 minimap 宽度）。
+- 额外两套主题 **OpenCode（纯白）/ OpenCode 暗色**：纯白底 + 结构用颜色区分（琥珀标题、玉绿色行内代码、
+  钴蓝链接、青色序号），暗色为紫罗兰标题 + 薄荷代码（取自 `anomalyco/opencode` 调色板）。
 - 人格选择器在手机上收进「更多控件」，窄桌面自动退成图标（容器测量 + 滞回）。
 - 三语文案（en / zh-CN / zh-TW）补齐，`lib/i18n/messages/*.ts` 各 1596 键、零差异。
 
