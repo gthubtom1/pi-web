@@ -110,7 +110,7 @@
 - 额外两套主题 **OpenCode（纯白）/ OpenCode 暗色**：纯白底 + 结构用颜色区分（琥珀标题、玉绿色行内代码、
   钴蓝链接、青色序号），暗色为紫罗兰标题 + 薄荷代码（取自 `anomalyco/opencode` 调色板）。
 - 人格选择器在手机上收进「更多控件」，窄桌面自动退成图标（容器测量 + 滞回）。
-- 三语文案（en / zh-CN / zh-TW）补齐，`lib/i18n/messages/*.ts` 各 1596 键、零差异。
+- 两语文案（en / zh-CN；`zh-TW` 按用户要求移除，任何 `zh-*` 浏览器语言归到 `zh-CN`），键集合零差异。
 
 ---
 
@@ -126,7 +126,7 @@
 | `components/MessageView.tsx` | 回退按钮、只删这条回复、advisor 卡片标题 | 中 |
 | `components/SettingsPanel.tsx` | 远程访问 Tab、顾问嵌入常规、人格与规则 Tab | **高**（导航表） |
 | `lib/settings-navigation.ts` | 新增 `remote`、`prompts` | 高（枚举） |
-| `lib/i18n/messages/{en,zh-CN,zh-TW}.ts` | 约 100 条新键 | 中（按键合并） |
+| `lib/i18n/messages/{en,zh-CN}.ts` | 约 100 条新键 | 中（按键合并） |
 | `lib/web-auth.ts` / `proxy.ts` / `app/api/web-auth/route.ts` | 密码来源改为 `getWebPassword()`；放行 `/api/web-auth/pair` | 中（安全相关，改完必测） |
 | `lib/request-security.ts` | 动态 host 白名单（隧道） | 中（安全相关） |
 | `bin/pi-web.js` / `bin/pi-web-options.js` | 打印密码/局域网地址；默认 `0.0.0.0` | 中 |
@@ -159,7 +159,7 @@ git diff --stat HEAD...upstream/main | tail -20      # 影响面
 1. 上游是否**升级了 pi SDK**（`package.json` 里 `@earendil-works/*` 版本）。升了就必须整包一起升。
 2. 是否动了第 3 节表里的文件（尤其 `lib/rpc-manager.ts`、`components/SettingsPanel.tsx`、
    `lib/settings-navigation.ts`、`lib/i18n/messages/*`）。
-3. 是否有新 i18n 键（合并后要保证三语键数一致）。
+3. 是否有新 i18n 键（合并后要保证两种语言的键数一致）。
 
 ### 4.2 合并
 

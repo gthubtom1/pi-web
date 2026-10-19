@@ -67,6 +67,49 @@ export function mcpPromptPreparation(message: string, commands: readonly McpComm
   return isBuiltinMcpCommand(command) ? "register" : "none";
 }
 
+/**
+ * The `sourceInfo.path` of whatever owns `/mcp` right now: `builtin:mcp` when the
+ * built-in extension runs, else the path of the extension that replaced it (a
+ * third-party MCP extension), else null when nothing does.
+ *
+ * The host, the policies and the composer all need this rather than a hard-coded
+ * `builtin:mcp`: pi's `replaceable` mechanism drops the built-in when another
+ * extension registers `/mcp`, and that extension's tools carry ITS path.
+ */
+export function mcpProviderPath(commands: readonly McpCommandCandidate[]): string | null {
+  const builtin = commands.find(isBuiltinMcpCommand);
+  if (builtin) return MCP_EXTENSION_PATH;
+  const owner = commands.find(isMcpExtensionCommand);
+  return owner?.sourceInfo?.path ?? null;
+}
+
+/**
+ * Whether a tool name belongs to an MCP provider.
+ *
+ * pi's built-in extension registers `mcp__<server>__<tool>`; a third-party MCP
+ * extension registers `mcp_<server>_<tool>` (pi-mcp-extension's default
+ * `toolPrefix: "mcp"`). Both are MCP tools, and a policy that only knew the
+ * double underscore silently stopped recognising every MCP tool the moment such
+ * an extension took `/mcp` over.
+ */
+export function isMcpToolName(name: string): boolean {
+  return name.startsWith("mcp__") || name.startsWith("mcp_");
+}
+
+/** The SDK's MCP resource tools: registered by the built-in provider, no server needed. */
+export const MCP_RESOURCE_TOOL_NAMES: readonly string[] = [
+  "list_mcp_resources",
+  "list_mcp_resource_templates",
+  "read_mcp_resource",
+];
+
+/**
+ * The name globs a tool allowlist needs to admit MCP tools at all: both namings
+ * plus the resource tools. An allowlist is fixed when a session is created, so a
+ * pattern is the only way to admit tools a server registers later.
+ */
+export const MCP_TOOL_PATTERNS: readonly string[] = ["mcp__*", "mcp_*", ...MCP_RESOURCE_TOOL_NAMES];
+
 /** Whether a composer message is `/mcp` alone, with no subcommand. */
 export function isBareMcpCommand(message: string): boolean {
   return message.trim() === `/${MCP_COMMAND_NAME}`;

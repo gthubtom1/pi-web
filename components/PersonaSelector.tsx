@@ -86,7 +86,7 @@ export function PersonaSelector({
         style={{
           display: "flex", alignItems: "center", justifyContent: iconOnly ? "center" : undefined, gap: 5,
           height: 32, padding: iconOnly ? 0 : "0 8px",
-          width: iconOnly ? 32 : undefined, maxWidth: iconOnly ? 32 : 160,
+          width: iconOnly ? 32 : undefined, maxWidth: iconOnly ? 32 : "100%",
           background: "none", border: "none", borderRadius: 9,
           color: value ? "var(--accent)" : "var(--text-muted)",
           cursor: disabled ? "default" : "pointer", fontSize: 12,

@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "path";
 import { parseFrontmatter } from "./frontmatter";
 import { parseNpmSource } from "./npm-source";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { MCP_TOOL_PATTERNS, isMcpToolName } from "./mcp-command";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
@@ -722,8 +723,6 @@ export function withSubagentExtensionTools(
 
 /** Every tool the SDK builds in (its `allToolNames`, which the package does not export). */
 export const SDK_BUILTIN_TOOLS: readonly string[] = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
-/** MCP tools by the SDK's `isMcpToolName()`: `mcp__*` and its three resource tools. */
-const MCP_TOOL_PATTERNS = ["mcp__*", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"];
 
 /**
  * The SDK tool options of a child, shared by spawn and reopen. A `tools` allowlist is fixed when
@@ -747,7 +746,7 @@ export function subagentToolOptions(resources: { tools: readonly string[]; allEx
     // An allowlist that names no MCP tool keeps every MCP tool registered for codemode scripts
     // and tool_search, as pi's `--tools` does, so a script could reach one an extension the
     // profile did not select registers. A child's allowlist is its whole scope: exclude them.
-    const namesMcp = resources.tools.some((name) => name.startsWith("mcp__"));
+    const namesMcp = resources.tools.some(isMcpToolName);
     return {
       tools: [...resources.tools],
       excludeTools: namesMcp

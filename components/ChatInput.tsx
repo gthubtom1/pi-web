@@ -742,6 +742,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   // right-hand controls slide off the card. `need` is the expanded row's width, kept
   // so the row grows back only once there is genuinely room for it (no oscillation).
   const controlsRowRef = useRef<HTMLDivElement | null>(null);
+  // The left group (attach + model + persona): it clips, so IT is what gets
+  // squeezed when the row is narrow.
+  const controlsLeftRef = useRef<HTMLDivElement | null>(null);
   const controlsNeedRef = useRef(0);
   const [controlsTight, setControlsTight] = useState(false);
   const measureControls = useCallback(() => {
@@ -749,12 +752,18 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     if (!row) return;
     const available = row.clientWidth;
     if (available <= 0) return;
+    // measure the hidden overflow in px (scrollWidth counts it, the row's own
+    // scrollWidth does not: the group's `overflow: hidden` absorbs it)
+    const group = controlsLeftRef.current;
+    const groupOverflow = group ? Math.max(0, group.scrollWidth - group.clientWidth) : 0;
     if (controlsTight) {
-      if (available >= controlsNeedRef.current) setControlsTight(false);
+      // Hysteresis in the other direction: only widen again once the row could
+      // hold the labels it needed before it went tight.
+      if (groupOverflow === 0 && available >= controlsNeedRef.current) setControlsTight(false);
       return;
     }
-    controlsNeedRef.current = row.scrollWidth;
-    if (row.scrollWidth > available + 1) setControlsTight(true);
+    controlsNeedRef.current = available + groupOverflow;
+    if (groupOverflow > 1 || row.scrollWidth > available + 1) setControlsTight(true);
   }, [controlsTight]);
   useLayoutEffect(() => {
     measureControls();
@@ -2496,7 +2505,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
           {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming).
               It may shrink (labels truncate) so the right-hand controls always fit. */}
-          <div style={{ flex: isMobile ? "1 1 auto" : "0 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2, overflow: "hidden" }}>
+          <div ref={controlsLeftRef} style={{ flex: isMobile ? "1 1 auto" : "0 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2, overflow: "hidden" }}>
             <button
               onClick={() => fileInputRef.current?.click()}
              title={t("chat.attachFiles")}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { TunnelMode } from "@/lib/tunnel-config-view";
 import { ConfigButton, ConfigNotice, ConfigSwitch } from "./SettingsUi";
 import { QrCode } from "./QrCode";
@@ -67,6 +68,7 @@ const QR_SLOT = 156;
  */
 export function RemoteAccessSection() {
   const { t } = useI18n();
+  const isMobile = useIsMobile();
   const [info, setInfo] = useState<RemoteInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -305,12 +307,15 @@ export function RemoteAccessSection() {
         </div>
         {options.action}
       </header>
-      <div style={{ display: "flex", gap: 18, alignItems: "flex-start", marginTop: 14 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>{options.children}</div>
+      {/* A phone has no room for a 156px square beside the text, so there the QR
+          drops under it (same square, same place in every card). */}
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 18, alignItems: "flex-start", marginTop: 14 }}>
+        <div style={{ flex: 1, minWidth: 0, width: isMobile ? "100%" : undefined }}>{options.children}</div>
         {/* Fixed square: the cards stay aligned whether or not this door is available. */}
         <div
           style={{
             width: QR_SLOT, height: QR_SLOT, flexShrink: 0, borderRadius: 10,
+            alignSelf: isMobile ? "center" : undefined,
             display: "flex", alignItems: "center", justifyContent: "center", padding: 8,
             border: options.qrValue ? "1px solid var(--border)" : "1px dashed var(--border)",
             background: options.qrValue ? "var(--bg-panel)" : "transparent",

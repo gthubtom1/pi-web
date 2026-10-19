@@ -277,6 +277,14 @@ export async function GET(
       rmSync(outputPath, { force: true });
     }
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    // The failure text can be the child process's own command line, with absolute
+    // paths and the session's file name. Keep that in the log and answer with a
+    // typed message: the browser has no use for this machine's layout.
+    console.error("[pi-web] session export failed:", error instanceof Error ? error.message : error);
+    const message = error instanceof Error ? error.message : String(error);
+    if (/File not found|ENOENT/i.test(message)) {
+      return NextResponse.json({ error: "This session has nothing to export yet." }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Export failed." }, { status: 500 });
   }
 }

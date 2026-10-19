@@ -43,7 +43,7 @@ Pi Web 是 [pi coding agent](https://github.com/earendil-works/pi) 的轻量网�
 - **一个 PR 只做一件事**，不相关的修复请分开提交。
 - **修 bug 时写清楚**如何在 `main` 上复现，以及为什么这个改动修的是根因。
 - **运行检查**：`npm test`、`node_modules/.bin/tsc --noEmit`、`npm run lint`。开发期间不要运行 `next build`（见 [AGENTS.md](../AGENTS.md)）。
-- **新增的界面文字**要同时加上 `en`、`zh-CN` 和 `zh-TW` 三种语言（[国际化](./i18n.md)）。
+- **新增的界面文字**要同时加上 `en` 和 `zh-CN` 两种语言（[国际化](./i18n.md)）。现在只发布两种；`zh-TW` 已移除。
 - **阅读相关的专题笔记**：[AGENTS.md](../AGENTS.md) 列出了代码各部分对应的 `docs/agents/` 笔记，改动哪些文件，就读哪些笔记。
 - **尽量不引入新的运行时依赖**；确实需要时请说明理由。
 

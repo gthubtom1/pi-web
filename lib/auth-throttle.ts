@@ -27,6 +27,8 @@ export interface AuthThrottleState {
 }
 
 const STATE_KEY = "pi-web:auth-throttle";
+/** The pairing endpoint's own counter: wrong codes must not block password logins. */
+const PAIRING_STATE_KEY = "pi-web:pairing-throttle";
 
 function freshState(): AuthThrottleState {
   return { failures: 0, lastFailureAt: 0, blockedUntil: 0 };
@@ -37,14 +39,39 @@ export function createAuthThrottleState(): AuthThrottleState {
 }
 
 /** Stored on `globalThis` so the counter survives Next.js hot reloads. */
-function getGlobalState(): AuthThrottleState {
+function globalState(keyName: string): AuthThrottleState {
   const store = globalThis as Record<PropertyKey, unknown>;
-  const key = Symbol.for(STATE_KEY);
+  const key = Symbol.for(keyName);
   const existing = store[key];
   if (isState(existing)) return existing;
   const created = freshState();
   store[key] = created;
   return created;
+}
+
+function getGlobalState(): AuthThrottleState {
+  return globalState(STATE_KEY);
+}
+
+/**
+ * The pairing endpoint's counter (`/api/web-auth/pair`).
+ *
+ * A wrong short code is the same kind of guess as a wrong password, so it gets the
+ * same exponential backoff - but in its own bucket: a phone typing a stale code
+ * must not lock the operator out of the password form, and vice versa. The QR
+ * path (`secret`, 24 random bytes) is not throttled: it cannot be guessed, and a
+ * block there would only punish the phone that just scanned.
+ */
+export function getPairingRetryAfterMs(now = Date.now()): number {
+  return getAuthRetryAfterMs(now, globalState(PAIRING_STATE_KEY));
+}
+
+export function recordPairingFailure(now = Date.now()): number {
+  return recordAuthFailure(now, globalState(PAIRING_STATE_KEY));
+}
+
+export function recordPairingSuccess(): void {
+  recordAuthSuccess(globalState(PAIRING_STATE_KEY));
 }
 
 function isState(value: unknown): value is AuthThrottleState {

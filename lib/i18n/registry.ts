@@ -1,9 +1,8 @@
 import { enLocale } from "./messages/en";
 import { zhCNLocale } from "./messages/zh-CN";
-import { zhTWLocale } from "./messages/zh-TW";
 import type { Locale, LocalePlugin } from "./types";
 
-const localePlugins: LocalePlugin[] = [enLocale, zhCNLocale, zhTWLocale];
+const localePlugins: LocalePlugin[] = [enLocale, zhCNLocale];
 
 /**
  * 根据标识获取已注册的语言包。
@@ -31,11 +30,10 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
     if (normalized === "zh" || normalized === "zh-cn" || normalized.startsWith("zh-cn-")
       || normalized === "zh-sg" || normalized.startsWith("zh-sg-")
       || normalized === "zh-hans" || normalized.startsWith("zh-hans-")) return "zh-CN";
-    if (normalized === "zh-tw" || normalized.startsWith("zh-tw-")
-      || normalized === "zh-hk" || normalized.startsWith("zh-hk-")
-      || normalized === "zh-mo" || normalized.startsWith("zh-mo-")
-      || normalized === "zh-hant" || normalized.startsWith("zh-hant-")) return "zh-TW";
-    if (normalized.startsWith("zh-")) return "zh-CN";
+    // Two locales ship: English and Simplified Chinese. Every other Chinese
+    // variant (zh-TW, zh-HK, zh-Hant…) resolves to zh-CN, which is far closer to
+    // what that reader expects than falling back to English.
+    if (normalized.startsWith("zh")) return "zh-CN";
   }
   return "en";
 }

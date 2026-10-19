@@ -85,10 +85,13 @@ browser on the machine itself (`http://127.0.0.1:30141` or `localhost`) is alway
 in, and the CLI opens exactly that URL — `http://0.0.0.0:30141` is not a browsable
 address (browsers refuse it; through a proxy it answers 502).
 
-**Other devices pair once, with a short code.** Settings › Remote access has two
-independent doors, one below the other, each with its own code and its own switch:
+**Other devices pair once, with a short code.** Settings › Remote access shows three
+independent doors, one card each, every card with its own code, its own QR and its
+own switch:
 
 - **Local network** — a phone on the same Wi-Fi. Its code works only there.
+- **Tailscale** — install Tailscale on this computer and on the phone, sign both into
+  the same account, and the tailnet address works on any network and never changes.
 - **Public tunnel** — an outbound-only Cloudflare quick tunnel
   (`https://<random>.trycloudflare.com`), reachable from any network without an app.
   Keep this code on: it is the only thing between the internet and an agent that can

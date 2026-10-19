@@ -155,7 +155,10 @@ export function ModelSelector({
         justifyContent: isMobile ? "flex-start" : undefined,
         gap: 6,
         width: isMobile ? "100%" : undefined,
-        maxWidth: isMobile ? "100%" : 220,
+        // Fills the wrapper's slot (capped at 220 above); the label ellipsizes
+        // instead of spilling over the next control.
+        maxWidth: "100%",
+        minWidth: 0,
         height: 32,
         padding: isMobile ? "8px 10px" : "8px 12px",
         overflow: "hidden",
@@ -187,7 +190,16 @@ export function ModelSelector({
     <div
       ref={rootRef}
       className={`model-selector is-${variant}${locked ? " is-disabled" : ""}`}
-      style={{ position: "relative", width: variant === "field" || isMobile ? "100%" : undefined, minWidth: 0, flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined }}
+      // The cap belongs on the wrapper, and the button fills it: a button with an
+      // intrinsic 220px width cannot shrink inside a narrower flex slot, so it used
+      // to paint over the persona picker next to it (measured at 700-800px).
+      style={{
+        position: "relative",
+        width: variant === "field" || isMobile ? "100%" : undefined,
+        minWidth: 0,
+        maxWidth: variant === "field" ? undefined : 220,
+        flex: variant === "toolbar" && isMobile ? "1 1 auto" : undefined,
+      }}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.preventDefault();

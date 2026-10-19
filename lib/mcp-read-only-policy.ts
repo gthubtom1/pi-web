@@ -1,5 +1,5 @@
 import type { InlineExtension, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { MCP_EXTENSION_PATH } from "./mcp-command";
+import { MCP_EXTENSION_PATH, isMcpToolName, mcpProviderPath } from "./mcp-command";
 import { readSessionToolSelection } from "./session-tool-selection";
 import { SDK_BUILTIN_TOOLS } from "./subagents";
 import type { SessionEntry } from "./types";
@@ -12,7 +12,6 @@ import type { SessionEntry } from "./types";
 // a tool by mistake, it does not defend against a malicious server.
 
 const WRITE_CAPABLE_TOOLS = new Set(["bash", "powershell", "edit", "write"]);
-const MCP_TOOL_PREFIX = "mcp__";
 
 export const READ_ONLY_MCP_POLICY_EXTENSION_NAME = "pi-web-read-only-mcp";
 
@@ -25,9 +24,26 @@ export function isReadOnlySelection(tools: readonly string[] | undefined): boole
   return tools !== undefined && tools.length > 0 && !tools.some((name) => WRITE_CAPABLE_TOOLS.has(name));
 }
 
-/** A tool the MCP extension registered, or one named like an MCP tool by another MCP extension. */
-export function isMcpTool(tool: Pick<ToolInfo, "name" | "sourceInfo">): boolean {
-  return tool.sourceInfo?.path === MCP_EXTENSION_PATH || tool.name.startsWith(MCP_TOOL_PREFIX);
+/**
+ * A tool the MCP provider registered, or one named like an MCP tool by another
+ * MCP extension.
+ *
+ * `providerPath` is whatever owns `/mcp` in this session (`mcpProviderPath()`):
+ * pi's `builtin:mcp`, or the path of the third-party extension that replaced it
+ * (pi's `replaceable` mechanism drops the built-in when another extension
+ * registers `/mcp`). Without it, every policy below silently stopped
+ * recognising MCP tools the moment such an extension took over - the tools were
+ * still callable, just not policed (forensics: `mcp_status`, `mcp_connect` are
+ * named `mcp_*`, registered by `npm:pi-mcp-extension`).
+ */
+export function isMcpTool(
+  tool: Pick<ToolInfo, "name" | "sourceInfo">,
+  providerPath: string | null = null,
+): boolean {
+  const path = tool.sourceInfo?.path;
+  if (path === MCP_EXTENSION_PATH) return true;
+  if (providerPath !== null && path === providerPath) return true;
+  return isMcpToolName(tool.name);
 }
 
 export function readOnlyMcpBlockReason(toolName: string): string {
@@ -63,9 +79,14 @@ export function createSubagentMcpPolicyExtension(
       // Nested calls (a codemode script's) pass through tool_call as well.
       pi.on("tool_call", (event) => {
         const tool = pi.getAllTools().find((candidate) => candidate.name === event.toolName);
-        if (!tool || !isMcpTool(tool)) return undefined;
+        const providerPath = mcpProviderPath(pi.getCommands());
+        if (!tool || !isMcpTool(tool, providerPath)) return undefined;
         const { tools, allExtensionTools } = scope();
-        if (!allExtensionTools && tool.sourceInfo?.path !== MCP_EXTENSION_PATH && !tools.includes(tool.name)) {
+        // The provider's own tools are the ones `mcp: on` selected, whoever the
+        // provider is; anything else must be named by the profile.
+        const fromProvider = tool.sourceInfo?.path === MCP_EXTENSION_PATH
+          || (providerPath !== null && tool.sourceInfo?.path === providerPath);
+        if (!allExtensionTools && !fromProvider && !tools.includes(tool.name)) {
           return { block: true, reason: unselectedMcpToolBlockReason(event.toolName) };
         }
         if (tool.annotations?.readOnlyHint === true) return undefined;
@@ -84,7 +105,8 @@ export function createReadOnlyMcpPolicyExtension(): InlineExtension {
       // Nested calls (a codemode script's) pass through tool_call as well, with parentToolCallId set.
       pi.on("tool_call", (event, ctx) => {
         const tool = pi.getAllTools().find((candidate) => candidate.name === event.toolName);
-        if (!tool || !isMcpTool(tool) || tool.annotations?.readOnlyHint === true) return undefined;
+        if (!tool || tool.annotations?.readOnlyHint === true) return undefined;
+        if (!isMcpTool(tool, mcpProviderPath(pi.getCommands()))) return undefined;
         // Read last: most calls are not MCP calls, and the selection scan walks the session.
         const selection = readSessionToolSelection(ctx.sessionManager.getEntries() as unknown as SessionEntry[]);
         if (!isReadOnlySelection(selection)) return undefined;

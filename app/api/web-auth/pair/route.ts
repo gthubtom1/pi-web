@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getPairingRetryAfterMs, recordPairingFailure, recordPairingSuccess, retryAfterSeconds } from "@/lib/auth-throttle";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getDynamicHosts } from "@/lib/dynamic-hosts";
 import { matchPairing, readRemotePairing, scopeForHost } from "@/lib/remote-pairing";
@@ -39,11 +40,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "code is required" }, { status: 400 });
   }
 
+  // The QR's secret is 24 random bytes: unguessable, and throttling it would only
+  // punish the phone that just scanned. A typed short code is a guess, and gets the
+  // same exponential backoff as the password form (in its own bucket, so a stale
+  // code on a phone cannot lock the operator out of the login page).
+  const usingSecret = Boolean(secret) && !code;
+  if (!usingSecret) {
+    const retryAfterMs = getPairingRetryAfterMs();
+    if (retryAfterMs > 0) {
+      return NextResponse.json(
+        { error: `Too many wrong pairing codes. Try again in ${retryAfterSeconds(retryAfterMs)}s.` },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds(retryAfterMs)), "Cache-Control": "no-store" } },
+      );
+    }
+  }
+
   const scope = scopeForHost(request.headers.get("host"), getDynamicHosts());
   const matched = matchPairing(readRemotePairing(), scope, { code, secret });
   if (matched === false) {
+    if (!usingSecret) recordPairingFailure();
     return NextResponse.json({ error: "Wrong pairing code" }, { status: 401 });
   }
+  if (!usingSecret) recordPairingSuccess();
 
   const response = NextResponse.json({ ok: true, pairingDisabled: matched === undefined });
   response.cookies.set({

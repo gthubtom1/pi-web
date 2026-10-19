@@ -687,6 +687,8 @@ export const enLocale: LocalePlugin = {
     "settings.realtimeSocket": "WebSocket only",
     "settings.realtimePoll": "Polling",
     "settings.realtimeHint": "Automatic uses a WebSocket and falls back to the server-sent event stream when the socket cannot be opened. WebSocket only skips that fallback. Polling re-reads the transcript every 1.5 seconds, which is the last resort for a network that buffers streams. Takes effect on the next connection or after a reload.",
+    "chat.fullOutputLoading": "loading…",
+    "chat.fullOutputView": "view full output",
     "chat.filesWritten": "Files changed",
     "chat.openWrittenFile": "Open {name}",
     "chat.loadEarlier": "Scroll up to load earlier messages",

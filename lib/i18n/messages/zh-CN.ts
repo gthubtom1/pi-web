@@ -687,6 +687,8 @@ export const zhCNLocale: LocalePlugin = {
     "settings.realtimeSocket": "只用 WebSocket",
     "settings.realtimePoll": "轮询",
     "settings.realtimeHint": "「自动」先开 WebSocket，连不上时退回服务端事件流；「只用 WebSocket」不走这个退路；「轮询」每 1.5 秒重读一次会话文件，是给会缓冲流式响应的网络留的最后一条路。下次连接或刷新页面后生效。",
+    "chat.fullOutputLoading": "加载中……",
+    "chat.fullOutputView": "查看完整输出",
     "chat.filesWritten": "改动的文件",
     "chat.openWrittenFile": "打开 {name}",
     "chat.loadEarlier": "向上滚动以加载更早的消息",

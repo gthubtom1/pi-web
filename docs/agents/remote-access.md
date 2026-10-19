@@ -116,6 +116,30 @@ buttons, autoStart, tunnel mode and the fixed-domain form).
   An `A` record to a LAN IP there yields Cloudflare ``error 1000`` ("DNS points to prohibited IP"),
   which looks like "the tunnel is down" from the phone while the connector is perfectly healthy.
 
+## What the pairing code protects, and how hard it is to guess
+
+- A wrong **code** feeds `lib/auth-throttle.ts` (exponential backoff, 1 s doubling to 60 s) in a bucket
+  of its own (`getPairingRetryAfterMs` / `recordPairingFailure`), so a phone with a stale code cannot
+  lock the operator out of the password form and vice versa. The endpoint answers `429` with
+  `Retry-After` while blocked. **The QR's `secret` is not throttled**: it is 24 random bytes, so a block
+  there would only punish the phone that just scanned.
+- The default code is 8 characters from a 31-letter alphabet (~8.5e11). A hand-typed 6-character code is
+  ~2.2e9, which is why the backoff exists at all — and why a memorable code (`888888`) is a bad idea.
+- Measured before the fix: 40 wrong codes in 109 ms, all `401`, no `429`.
+
+## Credential files are not browsable (`lib/file-access.ts`)
+
+`isCredentialFile()` refuses `<agentDir>/pi-web-tunnel.json`, `pi-web-remote-pairing.json`,
+`pi-web-auth.json`, `pi-web-session-key` and pi's own `auth.json`, in both the lexical and the
+symlink-resolving check behind `/api/files`.
+
+Why it matters: the allowed roots are the sessions' **cwds**, so a session opened in the home directory
+puts the whole agent dir in reach. Measured before the fix: a paired phone on the public hostname could
+`GET /api/files/.../&#8203;.pi/agent/pi-web-tunnel.json?type=read` and receive the named tunnel's token,
+while `/api/remote` carefully answers only `hasToken`. A paired device already has the terminal and the
+agent, so this was never an escalation — but it defeated the reason the token is stored behind
+`hasToken` in the first place.
+
 ## LAN / Tailscale addresses (`lib/remote-access.ts`)
 
 - `listRemoteAddresses()` reports RFC1918 LAN and Tailscale 100.64/10 addresses. Hypervisor/container/

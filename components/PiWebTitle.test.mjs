@@ -73,7 +73,7 @@ test("the brand is a button named for what its click shows, with the brand's tex
   assert.equal(html, `<button type="button" class="sidebar-brand" aria-label="Pi Web, versions: web ${app}, pi ${pi}">Pi Web</button>`);
   assert.doesNotMatch(html, /style=/, "no inline styles: its look is app/sidebar.css's");
   // In every language, with the visible name in it.
-  for (const locale of ["en", "zh-CN", "zh-TW"]) {
+  for (const locale of ["en", "zh-CN"]) {
     const label = getLocalePlugin(locale).messages["sidebar.brandLabel"];
     assert.ok(label?.startsWith("Pi Web"), `${locale}: ${label}`);
     assert.match(label, /\{app\}[\s\S]*\{pi\}/);
