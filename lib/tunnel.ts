@@ -5,24 +5,36 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { resolveAgentDir } from "./agent-dir";
 import { resolveOutboundProxy } from "./local-proxy";
 import { addDynamicHost, removeDynamicHost } from "./dynamic-hosts";
+import { readTunnelConfig, type TunnelMode } from "./tunnel-config";
 
 /**
- * The public tunnel: a single `cloudflared` quick tunnel that exposes this
- * server at a random `https://<name>.trycloudflare.com` address, so a phone on
- * another network (no public IP, CGNAT) can reach it. Outbound-only, free, no
- * account.
+ * The public tunnel: `cloudflared` exposing this server to a phone on another
+ * network (no public IP, CGNAT). Outbound-only, free.
  *
- * Lifecycle is a singleton on globalThis: start/stop from Settings, and the
- * exact hostname is registered with request-security only while it is up.
+ * Two modes, chosen in Settings › Remote access (lib/tunnel-config.ts):
+ *   quick — a random `https://<name>.trycloudflare.com` address, no account;
+ *   named — a fixed hostname the operator created in Cloudflare, run with that
+ *           tunnel's token (`cloudflared tunnel run`, token in TUNNEL_TOKEN so it
+ *           never appears in `ps` or a log).
+ *
+ * Lifecycle is a singleton on globalThis: start/stop from Settings or from
+ * autoStart at boot, and the exact hostname is registered with request-security
+ * only while it is up. A tunnel that was running and then died is restarted with
+ * an exponential backoff (B1), keeping the address the phone is already on.
  */
 
 export type TunnelStatus = "stopped" | "starting" | "running" | "error";
 /** What a "starting" tunnel is busy with, so the panel can say something useful. */
 export type TunnelPhase = "idle" | "downloading" | "connecting";
+export type { TunnelMode };
 
 export interface TunnelState {
   status: TunnelStatus;
+  /** Which kind of tunnel this state describes. */
+  mode: TunnelMode;
+  /** The address to open: the quick tunnel's random URL, or https://<hostname>. */
   url: string | null;
+  /** The exact hostname request-security trusts while the tunnel is up. */
   hostname: string | null;
   error: string | null;
   startedAt: number | null;
@@ -31,12 +43,26 @@ export interface TunnelState {
   usingSystemBinary: boolean;
   /** Whether the downloaded binary is on disk (the panel shows Install/Uninstall from it). */
   binaryInstalled: boolean;
+  /** How many times a once-running tunnel has been restarted by the keepalive. */
+  restarts: number;
+  /** True while the keepalive is waiting to try again. */
+  restarting: boolean;
+  /** Whether `pi-web` starts this tunnel by itself (the saved setting). */
+  autoStart: boolean;
 }
 
 interface TunnelRuntime {
   child: ChildProcess | null;
   state: TunnelState;
   starting: Promise<TunnelState> | null;
+  /** The operator wants a tunnel up: an unexpected exit is restarted. */
+  desired: boolean;
+  /** Port to point the tunnel at, remembered for restarts. */
+  port: number | null;
+  restartTimer: ReturnType<typeof setTimeout> | null;
+  restartAttempt: number;
+  /** Set while stopTunnel() tears the child down, so its exit is not "unexpected". */
+  stopping: boolean;
 }
 
 declare global {
@@ -44,21 +70,54 @@ declare global {
 }
 
 const TRYCLOUDFLARE_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
+const NAMED_READY = /Registered tunnel connection|Registered tunnel|Connection [a-z0-9-]+ registered/i;
 const START_TIMEOUT_MS = 45_000;
+/** A named tunnel is trusted this long after launch when it is still alive and quiet. */
+const NAMED_ASSUME_READY_MS = 20_000;
+const RESTART_BASE_MS = 1_000;
+const RESTART_MAX_MS = 30_000;
+
+function initialState(): TunnelState {
+  const config = readTunnelConfig();
+  return {
+    status: "stopped",
+    mode: config.mode,
+    url: null,
+    hostname: null,
+    error: null,
+    startedAt: null,
+    usingSystemBinary: false,
+    binaryInstalled: false,
+    phase: "idle",
+    restarts: 0,
+    restarting: false,
+    autoStart: config.autoStart,
+  };
+}
 
 function runtime(): TunnelRuntime {
   if (!globalThis.__piWebTunnel) {
     globalThis.__piWebTunnel = {
       child: null,
-      state: { status: "stopped", url: null, hostname: null, error: null, startedAt: null, usingSystemBinary: false, binaryInstalled: false, phase: "idle" },
+      state: initialState(),
       starting: null,
+      desired: false,
+      port: null,
+      restartTimer: null,
+      restartAttempt: 0,
+      stopping: false,
     };
   }
   return globalThis.__piWebTunnel;
 }
 
 export function getTunnelState(): TunnelState {
-  return { ...runtime().state, binaryInstalled: existsSync(storedBinaryPath()) };
+  const rt = runtime();
+  // autoStart lives in the config file, which Settings writes directly; read it
+  // here so the panel never shows a stale switch.
+  const autoStart = readTunnelConfig().autoStart;
+  if (autoStart !== rt.state.autoStart) rt.state.autoStart = autoStart;
+  return { ...rt.state, binaryInstalled: existsSync(storedBinaryPath()) };
 }
 
 function binaryName(): string {
@@ -182,27 +241,120 @@ function setState(patch: Partial<TunnelState>): void {
   runtime().state = { ...runtime().state, ...patch };
 }
 
+/** Drop a hostname this tunnel registered, if any (exact name only). */
+function unregisterHost(hostname: string | null): void {
+  if (hostname) removeDynamicHost(hostname);
+}
+
+function clearRestart(): void {
+  const rt = runtime();
+  if (rt.restartTimer) clearTimeout(rt.restartTimer);
+  rt.restartTimer = null;
+  if (rt.state.restarting) setState({ restarting: false });
+}
+
 /**
- * Start the quick tunnel pointing at `http://127.0.0.1:<port>`. Resolves once
- * the public URL is known (or throws with a readable message). Idempotent: a
- * second call while running/starting returns the current state.
+ * Start the tunnel described by the saved config, pointing at
+ * `http://127.0.0.1:<port>`. Resolves at once (the panel polls state);
+ * idempotent while one is running or starting.
  */
 export function startTunnel(port: number): TunnelState {
   const rt = runtime();
   if (rt.state.status === "running" || rt.state.status === "starting") return getTunnelState();
 
-  setState({ status: "starting", phase: "idle", error: null, url: null, hostname: null, startedAt: null });
-  // Kick off the work in the background and return at once, so the Settings
-  // button never blocks on a download or a slow network; the panel polls state.
-  void runStart(port);
+  const config = readTunnelConfig();
+  rt.desired = true;
+  rt.port = port;
+  rt.restartAttempt = 0;
+  clearRestart();
+  setState({
+    status: "starting",
+    phase: "idle",
+    error: null,
+    url: null,
+    hostname: null,
+    startedAt: null,
+    mode: config.mode,
+    autoStart: config.autoStart,
+    restarts: 0,
+  });
+  void runStart(port, false);
   return getTunnelState();
 }
 
-async function runStart(port: number): Promise<void> {
+/**
+ * Boot-time autoStart (B2): start whatever mode the config says, when the
+ * operator asked for it. Returns null when autoStart is off.
+ */
+export function autoStartTunnel(port: number): TunnelState | null {
+  const config = readTunnelConfig();
+  if (!config.autoStart) return null;
+  if (config.mode === "named" && (!config.token || !config.hostname)) {
+    // AutoStart was left on but the credential is gone: do not spin on a failure
+    // at every boot, report it in the panel instead.
+    setState({ mode: "named", autoStart: true, status: "error", error: "Fixed domain is enabled but its token or hostname is missing." });
+    return getTunnelState();
+  }
+  return startTunnel(port);
+}
+
+/** Stop the tunnel, cancel any pending restart, and forget its hostname. */
+export function stopTunnel(): TunnelState {
   const rt = runtime();
+  rt.desired = false;
+  clearRestart();
+  rt.restartAttempt = 0;
+  rt.stopping = true;
+  const child = rt.child;
+  if (child) {
+    try { child.kill(); } catch { /* ignore */ }
+    rt.child = null;
+  }
+  unregisterHost(rt.state.hostname);
+  rt.starting = null;
+  const keep = { mode: rt.state.mode, autoStart: rt.state.autoStart };
+  rt.state = { ...initialState(), ...keep };
+  rt.stopping = false;
+  return getTunnelState();
+}
+
+/** Exponential backoff for a tunnel that was running and then exited (B1). */
+function scheduleRestart(reason: string): void {
+  const rt = runtime();
+  if (!rt.desired || rt.port === null) return;
+  const attempt = (rt.restartAttempt += 1);
+  const delay = Math.min(RESTART_BASE_MS * 2 ** (attempt - 1), RESTART_MAX_MS);
+  clearRestart();
+  setState({ status: "starting", phase: "connecting", restarting: true, error: reason, restarts: rt.state.restarts });
+  rt.restartTimer = setTimeout(() => {
+    rt.restartTimer = null;
+    if (!rt.desired) return;
+    setState({ restarting: false });
+    void runStart(rt.port as number, true);
+  }, delay);
+  rt.restartTimer.unref?.();
+}
+
+async function runStart(port: number, isRestart: boolean): Promise<void> {
+  const rt = runtime();
+  rt.port = port;
+  rt.starting = null;
+
+  const config = readTunnelConfig();
+  const mode = config.mode;
+  if (mode === "named" && (!config.token || !config.hostname)) {
+    setState({
+      status: "error",
+      mode,
+      phase: "idle",
+      error: "The fixed domain needs a token and a hostname. Save them in Settings › Remote access.",
+    });
+    return;
+  }
+
   let bin: { path: string; system: boolean };
   try {
-    setState({ phase: "downloading" });
+    setState({ mode, phase: "downloading" });
     bin = await ensureCloudflared();
     setState({ phase: "connecting" });
   } catch (error) {
@@ -213,12 +365,23 @@ async function runStart(port: number): Promise<void> {
   // Give cloudflared the same proxy the download used (its Go runtime reads
   // HTTPS_PROXY/ALL_PROXY), so the tunnel connects through the local 梯子 too.
   const proxy = await resolveOutboundProxy();
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (proxy) {
+    env.HTTPS_PROXY = proxy;
+    env.HTTP_PROXY = proxy;
+    env.ALL_PROXY = proxy;
+  }
+  // The named tunnel's credential travels in the environment, never on the command
+  // line (so it stays out of `ps` output and any crash banner).
+  const args = mode === "named"
+    ? ["tunnel", "--no-autoupdate", "run"]
+    : ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${port}`];
+  if (mode === "named") env.TUNNEL_TOKEN = config.token;
+
   await new Promise<void>((resolve) => {
-    const child = spawn(bin.path, ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${port}`], {
+    const child = spawn(bin.path, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: proxy
-        ? { ...process.env, HTTPS_PROXY: proxy, HTTP_PROXY: proxy, ALL_PROXY: proxy }
-        : process.env,
+      env,
     }) as ChildProcess & { stdout: NodeJS.ReadableStream; stderr: NodeJS.ReadableStream };
     rt.child = child;
     setState({ usingSystemBinary: bin.system });
@@ -228,6 +391,7 @@ async function runStart(port: number): Promise<void> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(assumeTimer);
       setState(patch);
       resolve();
     };
@@ -236,6 +400,29 @@ async function runStart(port: number): Promise<void> {
     // initialize DNS local resolver", "dial tcp … i/o timeout") that line is the
     // only useful thing to show, instead of a bare timeout.
     let lastLine = "";
+    // A named tunnel reports no URL: its address is the configured hostname.
+    let namedReady = false;
+    const settleNamed = () => {
+      if (mode !== "named" || namedReady) return;
+      namedReady = true;
+      const hostname = config.hostname;
+      if (hostname) addDynamicHost(hostname);
+      const previous = runtime().state.hostname;
+      // A keepalive restart of a quick tunnel can land on a new random name; the
+      // old one stops being trusted so only the live address is reachable.
+      if (previous && previous !== hostname && !runtime().state.restarting) unregisterHost(previous);
+      finish({
+        status: "running",
+        phase: "idle",
+        url: hostname ? `https://${hostname}` : null,
+        hostname: hostname || null,
+        error: null,
+        startedAt: runtime().state.startedAt ?? Date.now(),
+        restarting: false,
+        restarts: runtime().state.restarts + (isRestart ? 1 : 0),
+      });
+    };
+
     const scan = (chunk: Buffer) => {
       const text = chunk.toString();
       for (const rawLine of text.split(String.fromCharCode(10))) {
@@ -244,12 +431,28 @@ async function runStart(port: number): Promise<void> {
         const trimmed = line.split("").filter((ch) => ch >= " ").join("").trim();
         if (trimmed) lastLine = trimmed.slice(0, 300);
       }
+      if (mode === "named") {
+        // Never echo a line that could carry the token.
+        if (NAMED_READY.test(text)) settleNamed();
+        return;
+      }
       const match = text.match(TRYCLOUDFLARE_URL);
       if (match) {
         const url = match[0];
         const hostname = new URL(url).hostname;
         addDynamicHost(hostname);
-        finish({ status: "running", phase: "idle", url, hostname, error: null, startedAt: Date.now() });
+        const previous = runtime().state.hostname;
+        if (previous && previous !== hostname) unregisterHost(previous);
+        finish({
+          status: "running",
+          phase: "idle",
+          url,
+          hostname,
+          error: null,
+          startedAt: runtime().state.startedAt ?? Date.now(),
+          restarting: false,
+          restarts: runtime().state.restarts + (isRestart ? 1 : 0),
+        });
       }
     };
     const withDetail = (message: string) => (lastLine ? `${message} (cloudflared: ${lastLine})` : message);
@@ -260,38 +463,46 @@ async function runStart(port: number): Promise<void> {
       finish({ status: "error", error: withDetail(error instanceof Error ? error.message : String(error)) });
     });
     child.on("exit", (code) => {
-      const wasRunning = runtime().state.status === "running";
+      const wasRunning = runtime().state.status === "running" || runtime().state.restarting === true;
+      const wasStopping = runtime().stopping;
       rt.child = null;
-      const host = runtime().state.hostname;
-      if (host) removeDynamicHost(host);
-      if (wasRunning) {
-        setState({ status: "stopped", url: null, hostname: null, startedAt: null });
-      } else if (!settled) {
-        finish({ status: "error", error: withDetail(`cloudflared exited with code ${code ?? "unknown"} before a URL was ready.`) });
+      if (mode === "quick") unregisterHost(runtime().state.hostname);
+      if (settled) {
+        // Already running: an unexpected exit restarts it (B1) instead of going dark.
+        if (wasRunning && rt.desired && !wasStopping) {
+          scheduleRestart(withDetail(`cloudflared exited (code ${code ?? "unknown"}); reconnecting`));
+        } else if (wasRunning) {
+          setState({ status: "stopped", url: null, hostname: null, startedAt: null, restarting: false });
+        }
+        return;
       }
+      if (wasRunning && rt.desired && !wasStopping) {
+        scheduleRestart(withDetail(`cloudflared exited (code ${code ?? "unknown"}); reconnecting`));
+        finish({ status: "starting", phase: "connecting", restarting: true });
+        return;
+      }
+      finish({ status: "error", error: withDetail(`cloudflared exited with code ${code ?? "unknown"} before a URL was ready.`) });
     });
 
     const timer = setTimeout(() => {
       if (settled) return;
+      if (mode === "named" && child.exitCode === null) {
+        // No URL line is ever printed in this mode; a quiet, living process is a
+        // working tunnel to the hostname the operator configured.
+        settleNamed();
+        return;
+      }
       try { child.kill(); } catch { /* ignore */ }
       finish({ status: "error", error: withDetail("Timed out waiting for the tunnel URL (network may be blocking Cloudflare).") });
     }, START_TIMEOUT_MS);
     timer.unref?.();
+    // A named tunnel usually registers within seconds; waiting the full timeout to
+    // say "running" would keep the panel saying "starting" long after it works.
+    const assumeTimer = mode === "named"
+      ? setTimeout(() => settleNamed(), NAMED_ASSUME_READY_MS)
+      : setTimeout(() => {}, 0);
+    assumeTimer.unref?.();
   });
-}
-
-/** Stop the tunnel and forget its hostname. */
-export function stopTunnel(): TunnelState {
-  const rt = runtime();
-  const child = rt.child;
-  if (child) {
-    try { child.kill(); } catch { /* ignore */ }
-    rt.child = null;
-  }
-  if (rt.state.hostname) removeDynamicHost(rt.state.hostname);
-  rt.starting = null;
-  rt.state = { status: "stopped", url: null, hostname: null, error: null, startedAt: null, usingSystemBinary: false, binaryInstalled: false, phase: "idle" };
-  return getTunnelState();
 }
 
 /** Wait for a killed child to actually exit (Windows keeps its image locked briefly). */
@@ -331,4 +542,25 @@ export async function uninstallTunnel(): Promise<TunnelState> {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return getTunnelState();
+}
+
+/**
+ * Kill the child when this process goes away, so a SIGTERM from the terminal or a
+ * closing dev server never leaves an orphaned tunnel pointing at a dead port.
+ */
+export function installTunnelShutdownHook(): void {
+  const rt = runtime();
+  if ((rt as TunnelRuntime & { shutdownHooked?: boolean }).shutdownHooked) return;
+  (rt as TunnelRuntime & { shutdownHooked?: boolean }).shutdownHooked = true;
+  const shutdown = () => {
+    const child = runtime().child;
+    runtime().desired = false;
+    clearRestart();
+    if (child) {
+      try { child.kill(); } catch { /* ignore */ }
+    }
+  };
+  process.once("exit", shutdown);
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

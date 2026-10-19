@@ -242,6 +242,9 @@ hooks/
 ## Fork, base version and upgrading upstream
 
 This repository is a **fork** of `agegr/pi-web`, based on **0.12.2 (`df163cd`)** with `@earendil-works/*` pinned at **1.2.0**.
+**A full external audit brief lives in [docs/AUDIT-BRIEF.md](docs/AUDIT-BRIEF.md)** — use it when a change needs a
+whole-project review (coverage matrix, evidence rules, the traps this fork has hit).
+
 **Open work is tracked on disk** (in-memory task lists die with a session):
 [docs/agents/remote-stream-and-fixed-domain.md](docs/agents/remote-stream-and-fixed-domain.md) — WebSocket live
 events + polling fallback, tunnel keepalive/autostart, and the editable named-tunnel form. Read it before working on
