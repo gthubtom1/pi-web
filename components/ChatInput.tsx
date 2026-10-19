@@ -1785,8 +1785,10 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         flexShrink: 0,
         minWidth: 0,
         margin: 0,
-        border: 0,
-        background: "transparent",
+        // The card (border, surface, radius, focus ring) belongs to
+        // `.chat-input-shell` (globals.css). Declaring border/background inline here
+        // beat that class, so the composer had a shadow but no border and no surface.
+        ...(compact ? { border: 0, background: "transparent" } : null),
         padding: compact ? 0 : "10px 14px 8px",
         paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
         opacity: builtinCommandPending ? 0.5 : 1,

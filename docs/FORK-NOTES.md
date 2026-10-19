@@ -157,15 +157,23 @@ node --experimental-strip-types --test lib/engineered-prompt.test.mjs lib/system
 npm run dev                           # 手工过一遍下面的清单
 ```
 
-**生产构建（部署/打包前）**：`next build --webpack` 在这台 16 GB 的机器上按 Node 默认堆（约 4 GB）
-会 `JavaScript heap out of memory`（与我们的改动无关，上游同理）。用：
+**本机部署 / 更新一条命令**：
 
 ```bash
-NODE_OPTIONS=--max-old-space-size=9216 npm run build   # PowerShell: $env:NODE_OPTIONS="--max-old-space-size=9216"
+npm run deploy        # scripts/deploy.mjs：构建 + 全局安装 pi-web
+pi-web                # 启动（控制台打印局域网地址和登录密码）
 ```
 
-构建成功后再删掉 `.next` 才能回到干净的 `npm run dev`（build 产物会让 dev 图缓存失效）。
-`node bin/pi-web.js` 跑起来时会打印局域网地址与登录密码（已用生产构建实测）。
+`npm run deploy` 处理了这台机器上会让普通 `next build` 失败的两件事：
+
+1. **堆内存**：`next build --webpack` 在 16 GB 机器上按 Node 默认堆（~4 GB）会
+   `JavaScript heap out of memory`。脚本用 `--max-old-space-size=9216`（可用 `PI_WEB_BUILD_HEAP_MB` 覆盖）。
+2. **字体**：`app/layout.tsx` 用 `next/font/google` 拉 `Noto Sans Mono`，国内直连 `fonts.googleapis.com`
+   会被重置。脚本自动探测本机代理（环境变量 → 7897/7890/1080…）并设 `NODE_USE_ENV_PROXY=1`，
+   让构建期 fetch 走代理（已实测：直连失败、走代理 200、构建通过）。
+
+只想构建不安装：`npm run deploy -- --skip-install`。构建产物 `.next` 会让 `npm run dev` 的图缓存失效，
+需要回到开发时删掉 `.next` 再 `npm run dev`。
 
 > **已知的环境性失败**（本机 Windows + Node 24，**与我们改动无关**，干净基线上同样失败）：
 > `hooks/{useAudio,useGroupDrag,useResizablePanel,useSessionUiState,useSidebarMotion,new-session-switch}.test.mjs`
