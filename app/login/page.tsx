@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { I18nProvider, useI18n } from "@/hooks/useI18n";
 import { safeLoginDestination } from "@/lib/login-destination";
 
@@ -15,6 +15,36 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const pairAttemptedRef = useRef(false);
+
+  // A scanned QR code lands here with ?pair=<token>: redeem it for a session and
+  // continue, so the phone never has to type (or see) the real password.
+  useEffect(() => {
+    const pairToken = new URLSearchParams(window.location.search).get("pair");
+    if (!pairToken || pairAttemptedRef.current) return;
+    // The pairing token is single-use, so redeem it exactly once even though
+    // React StrictMode runs this effect twice in development.
+    pairAttemptedRef.current = true;
+    setBusy(true);
+    (async () => {
+      try {
+        const response = await fetch("/api/web-auth/pair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: pairToken }),
+        });
+        if (!response.ok) {
+          setError(t("auth.pairInvalid"));
+          setBusy(false);
+          return;
+        }
+        window.location.replace(safeDestination());
+      } catch {
+        setError(t("auth.loginFailed"));
+        setBusy(false);
+      }
+    })();
+  }, [t]);
 
   const failureMessage = async (response: Response): Promise<string> => {
     if (response.status === 401) return t("auth.invalidPassword");

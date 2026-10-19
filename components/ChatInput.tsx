@@ -23,6 +23,7 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+import { stripEngineeredBanner } from "@/lib/engineered-prompt";
 import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { ImagePreview } from "./ImagePreview";
@@ -35,6 +36,7 @@ import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { SelectorRow } from "./SelectorRow";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { PersonaSelector, type PersonaOption } from "./PersonaSelector";
 
 export { filterModelOptions } from "./ModelSelector";
 
@@ -73,6 +75,13 @@ interface Props {
   onDismissCompactError?: () => void;
   compactResult?: CompactResultInfo | null;
   toolPreset?: ToolPreset;
+  /** Persona list for this composer's selector, and the conversation's current pick. */
+  personaOptions?: PersonaOption[];
+  /** `undefined` = not resolved yet (a fresh composer follows the default). */
+  personaId?: string | null;
+  /** The global default a brand-new conversation starts with. */
+  personaDefaultId?: string | null;
+  onPersonaChange?: (id: string | null) => void;
   onToolPresetChange?: (preset: ToolPreset) => void;
   thinkingLevel?: "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** New session has not committed a thinking level; the button still shows the resolved default. */
@@ -291,6 +300,7 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "session", description: "chat.commandSession", source: "builtin", availableWhileStreaming: true },
   { name: "copy", description: "chat.commandCopy", source: "builtin", availableWhileStreaming: true },
   { name: "clone", description: "chat.commandClone", source: "builtin" },
+  { name: "advisor", description: "chat.commandAdvisor", source: "builtin" },
 ];
 
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
@@ -652,6 +662,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   defaultModel, onSetDefaultModel,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
+  personaOptions, personaId, personaDefaultId, onPersonaChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -724,6 +735,68 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const pendingImageCountRef = useRef(0);
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
+
+  // The composer's bottom bar has a fixed set of controls, and a narrow window (or a
+  // phone) cannot fit them all. Measure it like a container: when the expanded row
+  // would overflow, fall back to a compact presentation instead of letting the
+  // right-hand controls slide off the card. `need` is the expanded row's width, kept
+  // so the row grows back only once there is genuinely room for it (no oscillation).
+  const controlsRowRef = useRef<HTMLDivElement | null>(null);
+  const controlsNeedRef = useRef(0);
+  const [controlsTight, setControlsTight] = useState(false);
+  const measureControls = useCallback(() => {
+    const row = controlsRowRef.current;
+    if (!row) return;
+    const available = row.clientWidth;
+    if (available <= 0) return;
+    if (controlsTight) {
+      if (available >= controlsNeedRef.current) setControlsTight(false);
+      return;
+    }
+    controlsNeedRef.current = row.scrollWidth;
+    if (row.scrollWidth > available + 1) setControlsTight(true);
+  }, [controlsTight]);
+  useLayoutEffect(() => {
+    measureControls();
+  });
+  useEffect(() => {
+    const row = controlsRowRef.current;
+    if (!row || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measureControls());
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [measureControls]);
+
+  // A fresh composer follows the global default until the user picks something;
+  // an existing conversation shows its own choice (null = explicitly none).
+  const shownPersonaId = personaId === undefined ? (personaDefaultId ?? null) : personaId;
+
+  // 回退（Rewind）成功后把被抹除那一轮的原文回填到输入框并聚焦，方便直接重发。
+  useEffect(() => {
+    const handleRecoverDraft = (e: Event) => {
+      const custom = e as CustomEvent<{ text: string }>;
+      if (!custom.detail?.text) return;
+      // 草稿是给人看、准备重发的：再剥一次工作台横幅，任何回填来源都自动受益。
+      const text = stripEngineeredBanner(custom.detail.text);
+      valueRef.current = text;
+      setValue(text);
+      setAtQuery(null);
+      if (draftKey) {
+        setDraft(draftKey, { value: text, images: [] });
+      }
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus();
+        ta.selectionStart = text.length;
+        ta.selectionEnd = text.length;
+        ta.style.height = "auto";
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      });
+    };
+    window.addEventListener("pi-web:recover-draft", handleRecoverDraft);
+    return () => window.removeEventListener("pi-web:recover-draft", handleRecoverDraft);
+  }, [draftKey]);
 
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
@@ -1714,7 +1787,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         margin: 0,
         border: 0,
         background: "transparent",
-        padding: compact ? 0 : "0 16px 8px",
+        padding: compact ? 0 : "10px 14px 8px",
         paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
         opacity: builtinCommandPending ? 0.5 : 1,
         transition: "opacity 0.15s",
@@ -2245,13 +2318,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               flexDirection: compact ? "column" : "row",
               gap: 8,
               alignItems: compact ? "stretch" : "center",
-              background: "var(--bg)",
-              border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
-                ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: compact ? 0 : 14,
-              padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
-              boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
+              // 单层卡片：外层 .chat-input-shell 负责圆角/边框/阴影（globals.css），
+              // 这里透明化，避免“卡片套卡片”。流式排队时仍用边框提示。
+              background: "transparent",
+              border: compact ? "none" : bashMode
+                ? "1px solid var(--tool-bg)"
+                : isStreaming && (onSteer || onFollowUp)
+                  ? "1px solid rgba(234,179,8,0.4)"
+                  : "none",
+              borderRadius: compact ? 0 : 12,
+              padding: compact ? 0 : isMobile ? "2px 2px 2px 4px" : "4px 4px 4px 6px",
+              boxShadow: "none",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
             } as React.CSSProperties}
           >
@@ -2400,7 +2477,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         )}
 
         {/* Bottom bar: left | center (context) | right */}
-        {!compact && <div className="chat-input-controls" style={{
+        {!compact && <div ref={controlsRowRef} className="chat-input-controls" style={{
           marginTop: isMobile ? 4 : 8,
           display: isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "minmax(0, 1fr) auto" : undefined,
@@ -2408,8 +2485,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           gap: 6,
         }}>
 
-          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming) */}
-          <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
+          {/* LEFT: attach + model selector (idle) or steer/followup toggle (streaming).
+              It may shrink (labels truncate) so the right-hand controls always fit. */}
+          <div style={{ flex: isMobile ? "1 1 auto" : "0 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2, overflow: "hidden" }}>
             <button
               onClick={() => fileInputRef.current?.click()}
              title={t("chat.attachFiles")}
@@ -2450,6 +2528,17 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 isAutoSelection={isAutoModelSelection}
                 defaultValue={defaultModel}
                 onSetDefault={onSetDefaultModel}
+              />
+            )}
+            {/* Persona picker: inline beside the model on a roomy row, icon-only when
+                the row is tight. Phones get it inside the "More" popover instead,
+                where there is room for its name. */}
+            {!isMobile && personaOptions && personaOptions.length > 0 && onPersonaChange && (
+              <PersonaSelector
+                personas={personaOptions}
+                value={shownPersonaId}
+                onChange={onPersonaChange}
+                iconOnly={controlsTight}
               />
             )}
           </div>
@@ -2530,6 +2619,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 backdropFilter: "blur(10px)",
               } : null),
             }}>
+            {/* A phone has no room for a labelled persona picker in the row itself, so
+                it lives here with the other secondary controls. */}
+            {isMobile && personaOptions && personaOptions.length > 0 && onPersonaChange && (
+              <PersonaSelector
+                personas={personaOptions}
+                value={shownPersonaId}
+                onChange={onPersonaChange}
+              />
+            )}
             {onThinkingLevelChange && (
               <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
                 <button

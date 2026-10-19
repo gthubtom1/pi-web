@@ -1,5 +1,7 @@
 export const SETTINGS_SECTION_VALUES = [
   "general",
+  "remote",
+  "prompts",
   "models",
   "skills",
   "agents",

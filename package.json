@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/agegr/pi-web#readme",
   "repository": {
@@ -36,10 +36,10 @@
   ],
   "scripts": {
     "postinstall": "node bin/prepare-terminal.js",
-    "dev": "next dev -H 127.0.0.1 -p 30141",
+    "dev": "next dev -H 0.0.0.0 -p 30141",
     "dev:lan": "next dev -H 0.0.0.0 -p 30141",
     "build": "next build --webpack",
-    "start": "next start -H 127.0.0.1 -p 30141",
+    "start": "next start -H 0.0.0.0 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
     "test:terminal": "node e2e/terminal.mjs",
@@ -61,6 +61,7 @@
     "next": "16.3.8",
     "node-pty": "1.2.0-beta.15",
     "proper-lockfile": "4.1.2",
+    "qrcode-generator": "2.0.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "semver": "7.8.5",

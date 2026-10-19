@@ -6,6 +6,7 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ImagePreview } from "./ImagePreview";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { copyText } from "@/lib/clipboard";
+import { stripEngineeredBanner } from "@/lib/engineered-prompt";
 import { useI18n } from "@/hooks/useI18n";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, hasAssistantAnswer, isAssistantTruncated, isEmptyThinkingBlock, splitThinkingPieces } from "@/lib/message-display";
@@ -215,6 +216,17 @@ interface Props {
   writtenFiles?: WrittenFile[];
   /** The whole turn's time, for a final answer with no process details to show it. */
   turnDurationMs?: number;
+  /**
+   * The last message of the conversation, and an assistant reply without tool
+   * calls: it can be deleted on its own (question and earlier work stay) so the
+   * same ask can be sent again.
+   */
+  canDeleteReply?: boolean;
+  /**
+   * Rewinding at this user message would also erase tool work, so it asks first.
+   * A turn that holds only text (a refusal) rewinds without a dialog.
+   */
+  rewindErasesTools?: boolean;
   onCompact?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
@@ -285,12 +297,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent, entryId, searchBlock, onFork, forking, onEditContent, onCancelEdit, isEditing, showTimestamp, prevTimestamp, sessionId, writtenFiles, turnDurationMs, canDeleteReply, rewindErasesTools, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} sessionId={sessionId} rewindErasesTools={rewindErasesTools} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationMs={turnDurationMs} canDeleteReply={canDeleteReply} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -325,13 +337,15 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.prevTimestamp === next.prevTimestamp
     && prev.writtenFiles === next.writtenFiles
     && prev.turnDurationMs === next.turnDurationMs
+    && prev.canDeleteReply === next.canDeleteReply
+    && prev.rewindErasesTools === next.rewindErasesTools
     && prev.sessionId === next.sessionId
     && prev.onCompact === next.onCompact
     && prev.isCompacting === next.isCompacting
     && prev.compactError === next.compactError;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onEditContent, onCancelEdit, isEditing, sessionId, rewindErasesTools }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
@@ -341,11 +355,16 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   onEditContent?: (message: UserMessage, entryId: string) => void;
   onCancelEdit?: () => void;
   isEditing?: boolean;
+  sessionId?: string | null;
+  /** See Props.rewindErasesTools. */
+  rewindErasesTools?: boolean;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
+  const [rewindError, setRewindError] = useState<string | null>(null);
 
   // Session files can hold `\r\n` or lone `\r` line endings (#680). Chrome renders
   // a lone `\r` as a space even in the pre-wrap command-args and raw-text views.
@@ -412,6 +431,38 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
+  };
+
+  const handleRewindTurn = async () => {
+    if (rewinding) return;
+    if (!sessionId || !entryId) return;
+    // Rewind truncates the session file: everything from this message on is gone and
+    // there is no undo. Ask first only when that takes tool work with it; a turn that
+    // is just a refusal goes at once, which is the case this is used for most.
+    if (rewindErasesTools && typeof window !== "undefined" && !window.confirm(t("rewind.confirm"))) return;
+    setRewinding(true);
+    setRewindError(null);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/rewind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        // 会话运行中（409）或回退失败（400）时给出可读提示，而不是只写控制台。
+        setRewindError(typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+        setRewinding(false);
+        return;
+      }
+      // 成功后才回填草稿并刷新会话：顺序保证失败时界面不变、草稿不被误覆盖。
+      // 回填的是准备重发的草稿：剥掉工作台加在用户输入前的横幅（历史气泡不受影响）。
+      window.dispatchEvent(new CustomEvent("pi-web:recover-draft", { detail: { text: stripEngineeredBanner(copyTarget) } }));
+      window.dispatchEvent(new CustomEvent("pi-web:session-reload", { detail: { sessionId } }));
+    } catch (err) {
+      setRewindError(err instanceof Error ? err.message : String(err));
+    }
+    setRewinding(false);
   };
 
   return (
@@ -515,8 +566,10 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
         }}>
           <div style={{
             display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
+            // Keep the buttons visible (faintly) while an error is showing so the
+            // user can retry or see what failed; otherwise hover-only as before.
+            opacity: hovered || rewindError ? 1 : 0,
+            pointerEvents: hovered || rewindError ? "auto" : "none",
             transition: "opacity 0.12s",
           }}>
             <button
@@ -547,6 +600,30 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                 </svg>
               )}
                {copied ? t("i18n.copied") : t("i18n.copy")}
+            </button>
+            <button
+              onClick={handleRewindTurn}
+              disabled={rewinding}
+              title={t("rewind.title")}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "3px 8px", height: 22,
+                background: "none", border: "none",
+                borderRadius: 5,
+                color: rewinding ? "var(--accent)" : "var(--text-dim)",
+                cursor: rewinding ? "default" : "pointer",
+                fontSize: 11, fontWeight: 400,
+                whiteSpace: "nowrap",
+                transition: "color 0.12s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7v6h6" />
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+              </svg>
+              {rewinding ? t("rewind.actionBusy") : t("rewind.action")}
             </button>
           </div>
           {(canFork || canEdit || canCancelEdit) && (
@@ -637,6 +714,11 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
         </div>
       )}
+      {rewindError && (
+        <div role="alert" style={{ marginTop: 4, fontSize: 11, color: "#ef4444", textAlign: "right" }}>
+          {t("rewind.failed")}{rewindError}
+        </div>
+      )}
     </div>
   );
 }
@@ -656,6 +738,7 @@ function AssistantMessageView({
   searchBlock,
   writtenFiles,
   turnDurationMs,
+  canDeleteReply,
   onCompact,
   isCompacting,
   compactError,
@@ -674,6 +757,7 @@ function AssistantMessageView({
   searchBlock?: AssistantContentBlock;
   writtenFiles?: WrittenFile[];
   turnDurationMs?: number;
+  canDeleteReply?: boolean;
   onCompact?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
@@ -689,6 +773,8 @@ function AssistantMessageView({
   const unansweredTruncation = truncated && !hasAssistantAnswer(message);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const streamStartRef = useRef<StreamRateStart | null>(null);
   const rateKey = streamRateKey(message);
   const streamRateKeyRef = useRef(rateKey);
@@ -756,6 +842,39 @@ function AssistantMessageView({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
+  };
+
+  // Remove exactly this reply (the question and every earlier tool result stay),
+  // then hand the question back to the composer so one Enter re-asks it. This is
+  // the "re-roll a refusal" path; Rewind on the user message is the bigger one.
+  const deleteReply = async () => {
+    if (deleting) return;
+    if (!sessionId || !entryId) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/rewind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId, mode: "reply" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(typeof data?.error === "string" ? data.error : `HTTP ${res.status}`);
+        setDeleting(false);
+        return;
+      }
+      const data = await res.json().catch(() => ({})) as { draft?: unknown };
+      // Put the question back so one Enter retries it (pi-web:recover-draft also
+      // strips a workbench banner from the draft).
+      if (typeof data?.draft === "string" && data.draft) {
+        window.dispatchEvent(new CustomEvent("pi-web:recover-draft", { detail: { text: data.draft } }));
+      }
+      window.dispatchEvent(new CustomEvent("pi-web:session-reload", { detail: { sessionId } }));
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    }
+    setDeleting(false);
   };
 
   useEffect(() => {
@@ -981,6 +1100,42 @@ function AssistantMessageView({
             )}
              {copied ? t("i18n.copied") : t("i18n.copy")}
           </button>
+        )}
+        {canDeleteReply && !isStreaming && !deleting && (
+          <button
+            onClick={() => void deleteReply()}
+            title={t("rewind.deleteReplyTitle")}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", height: 22,
+              background: "none", border: "none",
+              borderRadius: 5,
+              color: "var(--text-dim)",
+              cursor: "pointer",
+              fontSize: 11, fontWeight: 400,
+              whiteSpace: "nowrap",
+              opacity: hovered || deleteError ? 1 : 0,
+              pointerEvents: hovered || deleteError ? "auto" : "none",
+              transition: "opacity 0.12s, color 0.12s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+              <path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+            </svg>
+            {t("rewind.deleteReply")}
+          </button>
+        )}
+        {deleting && (
+          <span style={{ fontSize: 11, color: "var(--accent)" }}>{t("rewind.deleteReplyBusy")}</span>
+        )}
+        {deleteError && (
+          <span role="alert" style={{ fontSize: 11, color: "#ef4444", whiteSpace: "normal" }}>
+            {t("rewind.deleteReplyFailed")}{deleteError}
+          </span>
         )}
         {time && !isStreaming && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
@@ -1852,7 +2007,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const images = getMessageImages(message.content);
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
-  const title = formatCustomType(message.customType);
+  const title = message.customType === "advisor" ? t("advisor.cardTitle") : formatCustomType(message.customType);
   const time = formatTime(message.timestamp);
 
   const copyContent = () => {

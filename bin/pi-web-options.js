@@ -53,7 +53,7 @@ Commands:
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
-  -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or PI_WEB_HOSTNAME)
+  -H, --hostname <host>      Bind hostname (default: 0.0.0.0, or PI_WEB_HOSTNAME)
       --no-open              Do not open a browser automatically
   -h, --help                 Show this help message and exit
 
@@ -133,7 +133,7 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
   return {
     help: false,
     port: normalizePort(values.port ?? env.PORT ?? "30141"),
-    hostname: values.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
+    hostname: values.hostname ?? env.PI_WEB_HOSTNAME ?? "0.0.0.0",
     openBrowser: !values["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
   };
 }

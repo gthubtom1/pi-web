@@ -298,7 +298,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     dismissCompactError,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, handlePersonaChange, personaId, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
@@ -312,12 +312,68 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const hasStreamingContent = useStreamingSelector(streamingStore, selectHasStreamingContent);
   const getStreamingMessage = useCallback(() => streamingStore.getState().streamingMessage, [streamingStore]);
   const sessionBusy = agentRunning || bashRunning;
+  // "Rewind this turn" deletes from a user message on. When nothing but text sits
+  // after it (a refusal), there is nothing to lose and the button acts at once;
+  // when the turn ran tools it asks first. `toolWorkFrom[i]` says whether message i
+  // or anything after it is tool work.
+  const toolWorkFrom = useMemo(() => {
+    const flags = new Array<boolean>(messages.length).fill(false);
+    let seen = false;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === "toolResult") seen = true;
+      if (message.role === "assistant" && ((message as AssistantMessage).content ?? []).some((block) => block.type === "toolCall")) {
+        seen = true;
+      }
+      flags[index] = seen;
+    }
+    return flags;
+  }, [messages]);
   // While this session's run is under way its chime may come with the phone
   // locked, where a suspended context cannot start again (#1157).
   useEffect(() => {
     if (!agentRunning || !holdAudio) return;
     return holdAudio();
   }, [agentRunning, holdAudio]);
+
+  useEffect(() => {
+    const handleReload = () => {
+      if (sessionIdRef.current) {
+        void loadContext(sessionIdRef.current, null);
+      }
+    };
+    window.addEventListener("pi-web:session-reload", handleReload);
+    return () => window.removeEventListener("pi-web:session-reload", handleReload);
+  }, [loadContext, sessionIdRef]);
+  // The persona list for this composer's selector. Refetched when a settings
+  // change announces it, so a persona created in Settings shows up here.
+  const [personaOptions, setPersonaOptions] = useState<{ id: string; name: string }[]>([]);
+  // What a brand-new conversation will use before the user picks anything: the
+  // selector must show the default, not "no persona", or the label lies about
+  // the prompt the model is about to receive.
+  const [defaultPersonaId, setDefaultPersonaId] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const loadPersonas = () => {
+      // meta=1: id + name only. A persona card is tens of kilobytes and this
+      // picker opens with every session.
+      fetch("/api/personas?meta=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { personas?: { id: string; name: string }[]; defaultPersonaId?: string | null } | null) => {
+          if (alive && Array.isArray(data?.personas)) {
+            setPersonaOptions(data.personas.map((p) => ({ id: p.id, name: p.name })));
+            setDefaultPersonaId(typeof data.defaultPersonaId === "string" ? data.defaultPersonaId : null);
+          }
+        })
+        .catch(() => {});
+    };
+    loadPersonas();
+    window.addEventListener("pi-web:personas-changed", loadPersonas);
+    return () => {
+      alive = false;
+      window.removeEventListener("pi-web:personas-changed", loadPersonas);
+    };
+  }, []);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
     top: number;
@@ -974,6 +1030,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      personaOptions={personaOptions}
+      personaId={personaId}
+      personaDefaultId={defaultPersonaId}
+      onPersonaChange={session || isNew ? handlePersonaChange : undefined}
       thinkingLevel={thinkingLevel}
       isAutoThinkingSelection={isAutoThinkingSelection}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
@@ -1163,6 +1223,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                     turnDurationMs={options.turnDurationMs}
+                    // "Delete this reply": only the last message, and only an
+                    // assistant reply that called no tools (its tool chain would
+                    // otherwise be orphaned). Busy sessions cannot be rewritten.
+                    canDeleteReply={
+                      !sessionBusy
+                      && idx === messages.length - 1
+                      && msg.role === "assistant"
+                      && !((msg as { content?: unknown }).content as Array<{ type?: string }> | undefined)
+                        ?.some((block) => block?.type === "toolCall")
+                    }
+                    rewindErasesTools={toolWorkFrom[idx] === true}
                     onCompact={options.recoverTruncation ? handleCompact : undefined}
                     isCompacting={options.recoverTruncation ? isCompacting : undefined}
                     compactError={options.recoverTruncation ? compactError : undefined}

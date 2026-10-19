@@ -98,6 +98,7 @@ type AgentStateResponse = {
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   systemPrompt?: string;
   thinkingLevel?: string;
+  personaId?: string | null;
   isStreaming?: boolean;
   isPromptRunning?: boolean;
   isBashRunning?: boolean;
@@ -391,6 +392,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
   const [liveModel, setLiveModel] = useState<{ provider: string; modelId: string } | null>(null);
+  // This conversation's persona (null = no persona). Kept in a ref so ensureNewSession
+  // can pass the user's pick when it creates the session. `undefined` means the user
+  // never touched the picker, which lets the new session follow the global default
+  // instead of pinning it.
+  const [personaId, setPersonaId] = useState<string | null | undefined>(undefined);
+  const personaIdRef = useRef<string | null | undefined>(undefined);
   const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [modelSwitching, setModelSwitching] = useState(false);
   const [isCompacting, setIsCompacting] = useState(false);
@@ -542,6 +549,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       : null);
     if (state?.thinkingLevel !== undefined) {
       setLiveThinkingLevel(asConcreteThinkingLevel(state.thinkingLevel));
+    }
+    if (state?.personaId !== undefined) {
+      personaIdRef.current = state.personaId ?? null;
+      setPersonaId(state.personaId ?? null);
     }
   }, []);
 
@@ -906,6 +917,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           ...(selectedThinkingLevel
             ? { thinkingLevel: selectedThinkingLevel }
             : {}),
+          ...(personaIdRef.current !== undefined ? { personaId: personaIdRef.current } : {}),
         }),
       });
       if (!res.ok) {
@@ -918,6 +930,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         sessionId: string;
         model?: SelectedModel | null;
         thinkingLevel?: ThinkingLevelOption;
+        personaId?: string | null;
       };
       const realId = result.sessionId;
       sessionIdRef.current = realId;
@@ -933,6 +946,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (!selectedThinkingLevel) {
           setNewSessionDefaultThinkingLevel(asConcreteThinkingLevel(result.thinkingLevel));
         }
+      }
+      if (result.personaId !== undefined) {
+        personaIdRef.current = result.personaId ?? null;
+        setPersonaId(result.personaId ?? null);
       }
       return realId;
     })();
@@ -2273,6 +2290,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return completed;
         }
 
+        case "advisor": {
+          if (!sid) return complete({ handled: true, error: "No active session for advisor" });
+          if (args === "on" || args === "off" || args === "auto" || args === "manual") {
+            await fetch("/api/advisor-settings", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: args === "on" ? "auto" : args === "off" ? "off" : args }),
+            });
+            return complete({ handled: true, message: `Advisor mode: ${args}` });
+          }
+          // 无参数：手动触发一次审查。
+          await sendAgentCommand(sid, { type: "run_advisor" });
+          return complete({ handled: true, message: "Advisor review requested" });
+        }
+
         default:
           return { handled: false };
       }
@@ -2407,6 +2439,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (displayThinkingLevel !== level) await handleThinkingLevelChange(level);
     reloadModelsQuietly();
   }, [addNotice, displayThinkingLevel, handleThinkingLevelChange, reloadModelsQuietly, saveDefaultPreferences]);
+
+  const handlePersonaChange = useCallback(async (id: string | null) => {
+    personaIdRef.current = id;
+    setPersonaId(id);
+    const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
+    if (!sid) return; // a brand-new session will pass the pick when it is created
+    try {
+      await sendAgentCommand(sid, { type: "set_persona", personaId: id });
+    } catch (e) {
+      console.error("Failed to set persona:", e);
+    }
+  }, []);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
@@ -2774,7 +2818,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel, personaId,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -2802,7 +2846,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     cancelEdit: editEntryId ? cancelEdit : undefined,
     addNotice,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, handlePersonaChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

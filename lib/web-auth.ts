@@ -1,8 +1,18 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { resolveWebPassword } from "./web-secret";
 
 export const PI_WEB_AUTH_USERNAME = "pi";
 export const PI_WEB_SESSION_COOKIE = "pi_web_session";
 export const PI_WEB_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/**
+ * The effective password: `PI_WEB_PASSWORD` when set (empty string = auth off),
+ * otherwise a strong random secret generated once and stored in the agent dir
+ * (lib/web-secret.ts). No password lives in the source code.
+ */
+export function getWebPassword(): string {
+  return resolveWebPassword();
+}
 
 function hashSecret(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
@@ -13,21 +23,21 @@ function secretsEqual(actual: string, expected: string): boolean {
 }
 
 export function isWebPasswordEnabled(
-  password: string | undefined = process.env.PI_WEB_PASSWORD,
+  password: string | undefined = getWebPassword(),
 ): password is string {
   return typeof password === "string" && password.length > 0;
 }
 
 export function isValidWebPassword(
   suppliedPassword: string,
-  password = process.env.PI_WEB_PASSWORD,
+  password = getWebPassword(),
 ): boolean {
   return isWebPasswordEnabled(password) && secretsEqual(suppliedPassword, password);
 }
 
 export function isValidBasicAuthorization(
   authorization: string | null,
-  password = process.env.PI_WEB_PASSWORD,
+  password = getWebPassword(),
 ): boolean {
   if (!isWebPasswordEnabled(password) || !authorization) return false;
 
@@ -68,7 +78,7 @@ export function createWebSessionToken(
 
 export function isValidWebSessionToken(
   token: string | undefined,
-  password = process.env.PI_WEB_PASSWORD,
+  password = getWebPassword(),
   now = Date.now(),
 ): boolean {
   if (!token || !isWebPasswordEnabled(password)) return false;

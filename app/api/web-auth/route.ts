@@ -12,6 +12,7 @@ import {
   isValidWebPassword,
   isValidWebSessionToken,
   isWebPasswordEnabled,
+  getWebPassword,
   PI_WEB_SESSION_COOKIE,
   PI_WEB_SESSION_MAX_AGE,
 } from "@/lib/web-auth";
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  const password = process.env.PI_WEB_PASSWORD;
+  const password = getWebPassword();
   const enabled = isWebPasswordEnabled(password);
   const authenticated = !enabled
     || isValidBasicAuthorization(request.headers.get("authorization"), password)
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   }
 
-  const password = process.env.PI_WEB_PASSWORD;
+  const password = getWebPassword();
   if (!isWebPasswordEnabled(password)) {
     return NextResponse.json({ error: "Password authentication is disabled" }, { status: 404 });
   }

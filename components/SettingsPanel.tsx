@@ -31,6 +31,9 @@ import { ModelsConfig } from "./ModelsConfig";
 import { setupPushSubscription } from "@/lib/push-client";
 import { SkillsConfig } from "./SkillsConfig";
 import { AgentsConfig } from "./AgentsConfig";
+import { SystemPromptsConfig } from "./SystemPromptsConfig";
+import { AdvisorConfig } from "./AdvisorConfig";
+import { RemoteAccessSection } from "./RemoteAccessSection";
 import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
@@ -67,6 +70,8 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   };
 
   if (section === "general") return <svg {...common}><path d="M20 7h-9M14 17H5" /><circle cx="7" cy="7" r="3" /><circle cx="17" cy="17" r="3" /></svg>;
+  if (section === "remote") return <svg {...common}><rect x="6" y="2" width="12" height="20" rx="2" /><path d="M12 18h.01" /><path d="M9.5 6.5a4 4 0 0 1 5 0" /><path d="M7.5 4.5a7 7 0 0 1 9 0" /></svg>;
+  if (section === "prompts") return <svg {...common}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>;
   if (section === "models") return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" /></svg>;
   if (section === "skills") return <svg {...common}><path d="m12 2-10 5 10 5 10-5-10-5Z" /><path d="m2 12 10 5 10-5M2 17l10 5 10-5" /></svg>;
   if (section === "agents") return <svg {...common} className="settings-section-icon is-agent"><rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" /></svg>;
@@ -74,7 +79,7 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
   return <svg {...common}><path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" /></svg>;
 }
 
-function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
+function GeneralSettings({ cwd, sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "cwd" | "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -462,6 +467,10 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
         )}
       </section>
 
+      {/* Advanced: the advisor reviews finished turns. It lives here rather than in
+          its own settings tab: it is one switch with a model, not a whole area. */}
+      <AdvisorConfig cwd={cwd} embedded />
+
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
         <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
@@ -522,6 +531,8 @@ export function SettingsPanel({
   // Which sections need a project is decided once, in lib/settings-navigation.ts.
   const sections: { id: SettingsSection; label: string; requiresProject: boolean }[] = ([
     { id: "general", label: t("settings.general") },
+    { id: "remote", label: t("settings.remote") },
+    { id: "prompts", label: t("settings.prompts") },
     { id: "models", label: t("common.models") },
     { id: "skills", label: t("common.skills") },
     { id: "agents", label: t("common.agents") },
@@ -618,7 +629,9 @@ export function SettingsPanel({
         </div>
 
         <main className="settings-dialog-main">
-          {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("general", <GeneralSettings cwd={cwd} sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
+          {sectionHost("remote", <RemoteAccessSection />)}
+          {sectionHost("prompts", <SystemPromptsConfig embedded cwd={cwd} onClose={onClose} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}

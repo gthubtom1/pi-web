@@ -12,6 +12,10 @@ if (!isNodeVersionSupported(process.versions.node)) {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const crypto = require("crypto");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const os = require("os");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
@@ -68,6 +72,84 @@ function exitWhenIdle(code) {
   setTimeout(() => process.exit(code), 2_000).unref();
 }
 
+// Non-internal IPv4 addresses, for telling a phone which LAN URL to open when
+// the server binds a wildcard address (0.0.0.0 / ::). Hypervisor/container/
+// VPN-tap adapters are skipped the way Settings › Remote access skips them.
+function getLanUrls(port) {
+  const real = [];
+  const virtual = [];
+  const virtualIface = /(vmware|virtualbox|vbox|hyper-?v|vethernet|wsl|docker|loopback|npcap|bluetooth|tap-|tun\d|ppp)/i;
+  try {
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      const list = virtualIface.test(name) ? virtual : real;
+      for (const net of nets[name] ?? []) {
+        if (net.family === "IPv4" && !net.internal) list.push(`http://${net.address}:${port}`);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  // A machine whose only private address is virtual still gets a hint.
+  return real.length > 0 ? real : virtual;
+}
+
+// pi's agent directory, resolved like the SDK's getAgentDir().
+function getAgentDir() {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  if (!configured) return path.join(os.homedir(), ".pi", "agent");
+  if (configured === "~") return os.homedir();
+  if (configured.startsWith("~/") || configured.startsWith("~\\")) {
+    return path.join(os.homedir(), configured.slice(2));
+  }
+  return configured;
+}
+
+/**
+ * The password the browser will ask for.
+ *   - `PI_WEB_PASSWORD` set and non-empty: the operator's own password (not echoed).
+ *   - `PI_WEB_PASSWORD` set but empty: authentication is off.
+ *   - otherwise: a strong random secret generated once into
+ *     `<agentDir>/pi-web-secret`, printed here so the first login is possible.
+ * Same precedence as lib/web-secret.ts, which the server uses.
+ */
+function describePassword() {
+  if (process.env.PI_WEB_PASSWORD !== undefined) {
+    if (process.env.PI_WEB_PASSWORD === "") {
+      return { kind: "disabled", lines: ["Authentication is disabled (PI_WEB_PASSWORD is empty)."] };
+    }
+    return { kind: "env", lines: ["Password: from PI_WEB_PASSWORD (not echoed)."] };
+  }
+  const dir = getAgentDir();
+  const file = path.join(dir, "pi-web-secret");
+  // Settings › Remote access can switch authentication off without an env var
+  // (Windows cannot set an empty PI_WEB_PASSWORD). Same file the server reads.
+  try {
+    const authFile = path.join(dir, "pi-web-auth.json");
+    if (fs.existsSync(authFile)) {
+      const parsed = JSON.parse(fs.readFileSync(authFile, "utf-8"));
+      if (parsed?.requirePassword === false) {
+        return { kind: "disabled", lines: ["Authentication is off (Settings \u203a Remote access). Anyone who can reach this port may use the agent."] };
+      }
+    }
+  } catch {
+    // a corrupt file keeps authentication on, as the server does
+  }
+  try {
+    let secret = "";
+    if (fs.existsSync(file)) secret = fs.readFileSync(file, "utf-8").trim();
+    if (!secret) {
+      secret = crypto.randomBytes(24).toString("base64url");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, `${secret}\n`, { encoding: "utf-8", mode: 0o600 });
+      try { fs.chmodSync(file, 0o600); } catch { /* Windows: profile ACLs apply */ }
+    }
+    return { kind: "generated", lines: [`Password: ${secret}`, `  stored in ${file} (delete it to rotate)`] };
+  } catch (error) {
+    return { kind: "error", lines: ["Could not read or create the login secret: " + (error instanceof Error ? error.message : String(error))] };
+  }
+}
+
 function startServer({ port, hostname, openBrowser }) {
 
   const pkgDir = path.join(__dirname, "..");
@@ -89,7 +171,10 @@ function startServer({ port, hostname, openBrowser }) {
   }
 
   const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-  const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
+  // Auth is on by default: a strong random secret is generated on first run and
+  // stored in the agent dir (lib/web-secret.ts). Only an explicit empty
+  // PI_WEB_PASSWORD turns authentication off.
+  const passwordEnabled = process.env.PI_WEB_PASSWORD !== "";
 
   if (!fs.existsSync(nextDir)) {
     console.error("Build artifacts not found. Please report this issue.");
@@ -151,6 +236,16 @@ function startServer({ port, hostname, openBrowser }) {
     if (!serverReady && text.includes("Ready")) {
       serverReady = true;
       if (port !== "0") runRecord.markReady();
+      const nl = String.fromCharCode(10);
+      const auth = describePassword();
+      if (hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]") {
+        const lanUrls = getLanUrls(port);
+        if (lanUrls.length > 0) {
+          const lines = lanUrls.map((u) => "    " + u).join(nl);
+          process.stdout.write(nl + "  On your network (phones, other devices):" + nl + lines + nl);
+        }
+      }
+      process.stdout.write(nl + "  " + auth.lines.join(nl + "  ") + nl + nl);
       if (openBrowser) openInBrowser(url);
     }
   });

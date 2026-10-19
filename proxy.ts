@@ -12,6 +12,7 @@ import {
   isValidWebSessionToken,
   isValidBasicAuthorization,
   isWebPasswordEnabled,
+  getWebPassword,
   PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
 
@@ -39,7 +40,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  const password = process.env.PI_WEB_PASSWORD;
+  const password = getWebPassword();
   if (!isWebPasswordEnabled(password)) {
     if (request.nextUrl.pathname === "/login") {
       return NextResponse.redirect(new URL("/", request.url));
@@ -66,7 +67,10 @@ export function proxy(request: NextRequest) {
       ? NextResponse.redirect(new URL("/", request.url))
       : NextResponse.next();
   }
-  if (request.nextUrl.pathname === "/api/web-auth") return NextResponse.next();
+  // The login endpoint, and the pairing endpoint a scanned QR redeems, must be
+  // reachable before a session exists.
+  if (request.nextUrl.pathname === "/api/web-auth"
+    || request.nextUrl.pathname === "/api/web-auth/pair") return NextResponse.next();
 
   if (!authenticated) {
     if (!isApiRequest) {

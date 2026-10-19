@@ -27,20 +27,20 @@
 :root,
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #ffffff;
-  --bg-panel: #f5f5f5;
-  --bg-hover: #eeeeee;
-  --bg-selected: #e8e8e8;
-  --border: #e0e0e0;
-  --text: #1a1a1a;
-  --text-muted: #515c6b;
-  --text-dim: #5e6673;
-  --accent: #245bce;
-  --accent-hover: #1d4ed8;
+  --bg: #faf9f6;
+  --bg-panel: #f3f1ec;
+  --bg-hover: #ebe8e1;
+  --bg-selected: #e3dfd6;
+  --border: #e6e2da;
+  --text: #262422;
+  --text-muted: #6b6863;
+  --text-dim: #6e6a63;
+  --accent: #b54f2d;
+  --accent-hover: #9c4227;
   --accent-contrast: #ffffff;
-  --user-bg: #eff6ff;
-  --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
+  --user-bg: #f0ece3;
+  --assistant-bg: #faf9f6;
+  --tool-bg: #f5f3ed;
   --bg-subtle: rgba(0,0,0,0.03);
   --chat-content-max-width: 820px;
   --chat-content-font-size: 14px;
@@ -49,20 +49,20 @@
 html.dark,
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #1a1a1a;
-  --bg-panel: #242424;
-  --bg-hover: #2e2e2e;
-  --bg-selected: #383838;
-  --border: #454545;
-  --text: #e8e8e8;
-  --text-muted: #b7b7b7;
-  --text-dim: #a4a4a4;
-  --accent: #a4c2f4;
-  --accent-hover: #c3d8fa;
-  --accent-contrast: #182234;
-  --user-bg: #292929;
-  --assistant-bg: #1a1a1a;
-  --tool-bg: #222222;
+  --bg: #1c1b18;
+  --bg-panel: #262421;
+  --bg-hover: #302d29;
+  --bg-selected: #3b3732;
+  --border: #3b3733;
+  --text: #ece8df;
+  --text-muted: #99948c;
+  --text-dim: #8f8a82;
+  --accent: #d97757;
+  --accent-hover: #e08b6e;
+  --accent-contrast: #2a1409;
+  --user-bg: #292723;
+  --assistant-bg: #1c1b18;
+  --tool-bg: #23211e;
   --bg-subtle: rgba(255,255,255,0.04);
 }
 
@@ -2782,4 +2782,24 @@ span.token.table {
   html[data-keyboard-open] .new-session-context {
     display: none !important;
   }
+}
+
+/* 适配性美化：输入框作为一张独立的柔和卡片（单层表面，不套框）。
+   内层输入框在 ChatInput.tsx 里改为透明，避免出现“卡片套卡片”。 */
+.chat-input-shell {
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -18px rgba(15, 23, 42, 0.18);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-input-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px -18px rgba(15, 23, 42, 0.22);
+}
+
+/* 用户气泡：只收紧字距，字体仍沿用设置里的界面字体（不覆盖 font-family）。 */
+.markdown-user-message {
+  letter-spacing: -0.01em;
 }

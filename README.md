@@ -2,6 +2,10 @@
 
 [中文文档](./docs/README.zh-CN.md) | [日本語](./docs/README.ja.md) | [Русский](./docs/README.ru.md)
 
+> **This repository is a fork** of [upstream Pi Web](https://github.com/agegr/pi-web) (base `0.12.2`, commit `df163cd`) with extra features on top:
+> per-conversation **personas** (multiple persona cards, switchable per chat, next to the model selector), a **rules** file, **remote access** (LAN/Tailscale addresses, one-time QR sign-in, Cloudflare quick tunnel), an opt-in **advisor** reviewer model, and two depths of **rewind** (whole turn, or just the last reply).
+> What we changed, which upstream files we touched, and how to merge an upstream release: **[docs/FORK-NOTES.md](./docs/FORK-NOTES.md)**. Base-version facts, upgrade checklist and acceptance list live there.
+
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
 **[Try the interactive demo →](https://agegr.github.io/pi-web/)** The real Pi Web UI runs entirely in your browser, with sample sessions, files and models. There is nothing to install; replies are pre-written and no model is called.
@@ -25,7 +29,7 @@ Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --versio
 npx @agegr/pi-web@latest
 ```
 
-The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141). Pi Web listens only on `127.0.0.1` by default.
+The CLI opens a browser after the server is ready. It binds `0.0.0.0` by default, so it is reachable from your phone or another device on the same network: the console prints the LAN URL (e.g. `http://192.168.1.20:30141`) once the server is ready. On the machine itself, open [http://127.0.0.1:30141](http://127.0.0.1:30141). To keep it local-only, pass `--hostname 127.0.0.1`.
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
@@ -56,12 +60,12 @@ For port and hostname, command-line options override the corresponding environme
 | --- | --- | --- |
 | `--help`, `-h` | Print startup options and exit | — |
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
-| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
+| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `0.0.0.0` (LAN-reachable; use `127.0.0.1` for local-only) |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
-| `PI_WEB_PASSWORD` | Enable browser password login; API clients may use Basic Auth with username `pi` | Authentication disabled |
+| `PI_WEB_PASSWORD` | Browser password login (API clients: Basic Auth, username `pi`). Overrides the generated password; set it to an empty value to disable authentication entirely (POSIX; on Windows use Settings › Remote access) | A strong random password generated on first run, printed at startup and stored in `~/.pi/agent/pi-web-secret` |
 | `PI_WEB_IDLE_TIMEOUT_MS` | Session idle timeout in milliseconds, up to `2147483647`; `0` disables idle shutdown; invalid or out-of-range values use the default | `600000` (10 min) |
 | `PI_WEB_SHUTDOWN_DEADLINE_MS` | How long extensions get to handle `session_shutdown` before a closing session is disposed anyway, in milliseconds up to `2147483647`; `0`, invalid or out-of-range values use the default | `5000` (5 s) |
 
@@ -71,18 +75,22 @@ For example:
 
 ```bash
 pi-web --help
-pi-web -p 8080 -H 0.0.0.0 --no-open
+pi-web -p 8080 --no-open   # binds 0.0.0.0; add -H 127.0.0.1 to keep it local-only
 ```
 
 ### Remote Access
 
-Binding to a non-loopback address exposes an agent that can execute high-privilege actions. On a trusted LAN, require a long random password:
+By default Pi Web binds `0.0.0.0` **and requires a password**, so an agent that can execute high-privilege actions is not exposed bare to your network. There is no password in the source: on first run Pi Web generates a strong random one, prints it at startup, and stores it in `~/.pi/agent/pi-web-secret` (mode `0600`). Delete that file to get a new one. To choose your own, set `PI_WEB_PASSWORD`:
 
 ```bash
-PI_WEB_PASSWORD='a-long-random-password' pi-web --hostname 0.0.0.0
+PI_WEB_PASSWORD='a-long-random-password' pi-web
 ```
 
-Password authentication does not encrypt the connection. Do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
+An empty `PI_WEB_PASSWORD` disables authentication entirely on POSIX systems; Windows cannot set an empty environment variable, so use **Settings › Remote access › Require a password** there (it writes `~/.pi/agent/pi-web-auth.json`). Only do this on a trusted, isolated machine.
+
+**Settings › Remote access** pairs a phone without typing: it lists this machine's LAN addresses (and Tailscale, when installed), and generates a one-time QR code that signs the phone in for about two minutes. The same panel can start a public Cloudflare quick tunnel (`https://<random>.trycloudflare.com`), so a phone on another network needs no app and no account; the tunnel refuses to start unless a password is set. It downloads `cloudflared` on first use (through your `HTTPS_PROXY`, or a detected local proxy) into `~/.pi/agent/pi-web-bin`, and **Uninstall** removes it again.
+
+Password authentication does not encrypt the connection. A public tunnel is HTTPS, but a LAN address is plain HTTP: do not expose Pi Web over plain HTTP to the internet; use HTTPS through a trusted reverse proxy or a trusted VPN. If a reverse proxy sends an external hostname, add that exact name to `PI_WEB_ALLOWED_HOSTS`. This allow-list does not change the address Pi Web binds to.
 
 ### HTTP Proxy
 

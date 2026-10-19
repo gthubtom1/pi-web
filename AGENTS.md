@@ -239,6 +239,11 @@ hooks/
 
 ---
 
+## Fork, base version and upgrading upstream
+
+This repository is a **fork** of `agegr/pi-web`, based on **0.12.2 (`df163cd`)** with `@earendil-works/*` pinned at **1.2.0**.
+**[docs/FORK-NOTES.md](docs/FORK-NOTES.md) is the map**: what was added, which upstream files we touched (the merge-conflict surface), the upstream-merge procedure, and the manual acceptance list to run after any upgrade. Read it before merging `upstream/main`, and keep it current when a feature is added.
+
 ## Topic Notes
 
 Design decisions and traps live in `docs/agents/`, one note per area. Read every note whose files a change touches before making it. Add new notes to the area's file, not here.
@@ -254,6 +259,9 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `lib/skills-service.ts`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
 - [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent viewer tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
 - [client-platform.md](docs/agents/client-platform.md): mobile software keyboard and viewport height, the terminal's extra keys, its own dark/light theme and its font size following the chat's, completion sound. Files: `hooks/useViewportHeight.ts`, `hooks/useAudio.ts`, `components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`, `lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`, `terminalFontSize()` in `hooks/useChatAppearance.ts`, the keyboard-open CSS.
+- [personas.md](docs/agents/personas.md): per-conversation personas vs the one global rules file, one file per persona plus a metadata index, the append-only session pick and the new-session path, injection modes (`every-turn` / `cached`), the collision with a pi prompt extension that forces the prompt, Settings › Persona & Rules and the composer picker. Files: `lib/personas.ts`, `lib/session-persona.ts`, `lib/persona-inject-settings.ts`, `lib/system-prompt-service.ts`, `app/api/personas/**`, `app/api/system-prompts/**`, `app/api/persona-inject/**`, `components/SystemPromptsConfig.tsx`, `components/PersonaSelector.tsx`, persona wiring in `lib/rpc-manager.ts`, `app/api/agent/new/route.ts`, `hooks/useAgentSession.ts` and `components/ChatInput.tsx`.
+- [remote-access.md](docs/agents/remote-access.md): the generated password vs `PI_WEB_PASSWORD`, phone pairing QR tokens, the Cloudflare quick tunnel (download, proxy, dynamic host, uninstall), LAN/Tailscale address listing. Files: `lib/web-secret.ts`, `lib/web-auth.ts`, `lib/pairing.ts`, `lib/tunnel.ts`, `lib/local-proxy.ts`, `lib/dynamic-hosts.ts`, `lib/remote-access.ts`, `app/api/remote/route.ts`, `app/api/web-auth/pair/route.ts`, `components/RemoteAccessSection.tsx`, `components/QrCode.tsx`, `proxy.ts`, `bin/pi-web.js`.
+- [advisor.md](docs/agents/advisor.md): the opt-in reviewer model (modes, threshold, interrupt policy, tail transcript, recursion guard) and Rewind's destructive session-file truncation next to upstream's Edit/Fork. Files: `lib/advisor-settings.ts`, `lib/advisor-runner.ts`, `app/api/advisor-settings/route.ts`, `components/AdvisorConfig.tsx`, `lib/session-rewind.ts`, `app/api/sessions/[id]/rewind/route.ts`, `/advisor` in `hooks/useAgentSession.ts`, the advisor card and Rewind button in `components/MessageView.tsx`, `sendCustomMessage` wiring in `lib/rpc-manager.ts`.
 
 ---
 
@@ -286,3 +294,13 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

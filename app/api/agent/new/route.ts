@@ -45,11 +45,22 @@ export async function POST(req: Request) {
     }
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
-    const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; [key: string]: unknown };
+    const { provider, modelId, toolNames, thinkingLevel, personaId, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; personaId?: unknown; [key: string]: unknown };
     if ((provider && !modelId) || (!provider && modelId)) {
       throw new Error("provider and modelId must be provided together");
     }
     const explicitThinkingLevel = parseThinkingLevel(thinkingLevel);
+    // The composer's persona pick for a brand-new conversation: a string, or null
+    // for "no persona". Omitted when the user never touched the picker, so the
+    // session follows the global default instead of being pinned to it.
+    const explicitPersonaId = personaId === undefined
+      ? undefined
+      : personaId === null || typeof personaId === "string"
+        ? personaId
+        : undefined;
+    if (personaId !== undefined && explicitPersonaId === undefined) {
+      throw new Error("personaId must be a string or null");
+    }
 
     // Must be unique per request: startRpcSession coalesces concurrent callers
     // that share a key onto one session. Date.now() (ms resolution) collides for
@@ -59,6 +70,7 @@ export async function POST(req: Request) {
       ...(toolNames ? { toolNames } : {}),
       ...(provider && modelId ? { initialModel: { provider, modelId } } : {}),
       ...(explicitThinkingLevel ? { thinkingLevel: explicitThinkingLevel } : {}),
+      ...(explicitPersonaId !== undefined ? { personaId: explicitPersonaId } : {}),
     });
 
     // Keep the files-route allowed-roots cache (see app/api/files/[...path]/route.ts)
@@ -70,6 +82,7 @@ export async function POST(req: Request) {
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };
       thinkingLevel?: string;
+      personaId?: string | null;
     };
 
     if (promptCommand.type === "ensure_session") {
@@ -81,6 +94,7 @@ export async function POST(req: Request) {
           ? { provider: state.model.provider, modelId: state.model.id }
           : null,
         thinkingLevel: state.thinkingLevel,
+        personaId: state.personaId ?? null,
       });
     }
 
@@ -95,6 +109,7 @@ export async function POST(req: Request) {
         ? { provider: state.model.provider, modelId: state.model.id }
         : null,
       thinkingLevel: state.thinkingLevel,
+      personaId: state.personaId ?? null,
     });
   } catch (error) {
     return NextResponse.json({

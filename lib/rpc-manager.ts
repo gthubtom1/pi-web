@@ -49,6 +49,10 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { createPersonalityExtension } from "./system-prompt-service";
+import { appendSessionPersona, readSessionPersona } from "./session-persona";
+import { readPersonaInjectSettings } from "./persona-inject-settings";
+import { readPersonaText, resolvePersonaId } from "./personas";
 import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
@@ -56,6 +60,9 @@ import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } fr
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
+import { readAdvisorSettings, type AdvisorSettings } from "./advisor-settings";
+import { runAdvisorReview, shouldInterrupt, formatAdvisorMessage } from "./advisor-runner";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   appendClearedSessionToolSelection,
   appendSessionToolSelection,
@@ -131,6 +138,10 @@ type AgentSessionWrapperOptions = {
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  /** 子代理等后台会话不参与顾问审查（顾问只服务用户主对话）。 */
+  disableAdvisor?: boolean;
+  /** Reads/writes this conversation's persona id (the injection extension reads it per turn). */
+  persona?: { get: () => string | null; set: (id: string | null) => void };
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
   mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   /** Chat only: the extension-provided model the session wanted, named when a prompt finds no model. */
@@ -226,6 +237,12 @@ export interface RpcSessionStartOptions {
   initialModel?: { provider: string; modelId: string };
   allowInitialModelFallback?: boolean;
   thinkingLevel?: ThinkingLevel;
+  /**
+   * The persona a brand-new conversation starts with. `undefined` follows the
+   * global default; `null` means "no persona" explicitly (rules only). A value
+   * is persisted as the session's own pick, so it survives a reload.
+   */
+  personaId?: string | null;
 }
 
 const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
@@ -329,12 +346,19 @@ export class AgentSessionWrapper {
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
+  private readonly disableAdvisor: boolean;
+  private readonly persona?: { get: () => string | null; set: (id: string | null) => void };
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
   private readonly chatOnlyExtensionModel?: { provider: string; id: string };
   private mcpHostDisposed = false;
   // The MCP wait of the prompt being admitted; Stop ends it.
   private mcpPromptWait: { controller: AbortController; done: Promise<void> } | null = null;
   private unsubscribe: (() => void) | null = null;
+  private advisorTurnToolCalls = 0;
+  private advisorReviewing = false;
+  private advisorAbort: AbortController | null = null;
+  // 顾问自己触发了一轮主对话（打断纠偏）时，那一轮结束不得再触发顾问，否则会无限递归。
+  private advisorSuppressNextSettle = false;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
@@ -357,6 +381,8 @@ export class AgentSessionWrapper {
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.disableAdvisor = options.disableAdvisor ?? false;
+    this.persona = options.persona;
     this.mcpHost = options.mcpHost;
     this.chatOnlyExtensionModel = options.chatOnlyExtensionModel;
   }
@@ -437,8 +463,19 @@ export class AgentSessionWrapper {
       if (event.type === "agent_start") {
         this.agentRunNeedsCompletion = true;
         this.lastRunAborted = false;
+        this.advisorTurnToolCalls = 0;
       }
-      if (event.type === "agent_settled") this.lastRunAborted = event.aborted === true;
+      if (event.type === "tool_execution_start") this.advisorTurnToolCalls += 1;
+      if (event.type === "agent_settled") {
+        this.lastRunAborted = event.aborted === true;
+        if (this.advisorSuppressNextSettle) {
+          // 这是顾问打断后触发的那一轮（无论成功还是被中止），不再递归审查，并清掉标记。
+          this.advisorSuppressNextSettle = false;
+        } else if (event.aborted !== true) {
+          // 回合真正结束（非中断）后，按设置决定是否触发顾问审查。
+          void this.maybeRunAdvisor();
+        }
+      }
       if (event.type === "agent_end") {
         invalidateSessionListCache();
         // Every tool call of the run has finished; nothing is left to replay.
@@ -499,6 +536,59 @@ export class AgentSessionWrapper {
       for (const id of this.activeToolEvents.keys()) {
         if (id.startsWith(nestedPrefix)) this.activeToolEvents.delete(id);
       }
+    }
+  }
+
+  /**
+   * 回合结束后按设置决定是否运行顾问审查。
+   * - off：不运行；
+   * - manual：仅当本轮手动标记（由 /advisor 触发）时运行；
+   * - auto：当本轮工具调用次数达到 autoMinToolCalls 时自动运行。
+   * 审查完全异步、失败静默降级，绝不影响主流程。
+   */
+  private async maybeRunAdvisor(force = false): Promise<void> {
+    if (this.disableAdvisor) return;
+    if (this.advisorReviewing) return;
+    let settings: AdvisorSettings;
+    try {
+      settings = readAdvisorSettings();
+    } catch {
+      return;
+    }
+    if (!force) {
+      if (settings.mode === "off") return;
+      if (settings.mode === "auto" && this.advisorTurnToolCalls < settings.autoMinToolCalls) return;
+      if (settings.mode === "manual") return;
+    }
+    if (!this.isAlive() || this.inner.isStreaming) return;
+    this.advisorReviewing = true;
+    this.advisorAbort = new AbortController();
+    try {
+      const { notes } = await runAdvisorReview(
+        this.inner as unknown as AgentSession,
+        settings,
+        this.advisorAbort.signal,
+      );
+      if (!this.isAlive() || notes.length === 0) return;
+      const content = formatAdvisorMessage(notes);
+      const interrupt = shouldInterrupt(settings, notes);
+      if (interrupt) this.advisorSuppressNextSettle = true;
+      await this.inner.sendCustomMessage(
+        {
+          customType: "advisor",
+          content,
+          display: true,
+          details: { notes, interrupt },
+        },
+        interrupt ? { deliverAs: "followUp", triggerTurn: true } : { triggerTurn: false },
+      );
+    } catch (error) {
+      // 若打断发送失败，清掉抑制标记，避免误吞掉下一轮真实的顾问审查。
+      this.advisorSuppressNextSettle = false;
+      console.warn("[pi-web] advisor review failed:", error instanceof Error ? error.message : error);
+    } finally {
+      this.advisorReviewing = false;
+      this.advisorAbort = null;
     }
   }
 
@@ -974,6 +1064,8 @@ export class AgentSessionWrapper {
 
       case "abort":
         this.forceShutdownOnIdle = true;
+        // 停止时同时中止进行中的顾问审查，避免残留请求。
+        this.advisorAbort?.abort();
         // Arm the forced cleanup now: the reset above ran before this flag,
         // and the final reset only runs once the SDK run has unwound.
         this.resetIdleTimer();
@@ -991,6 +1083,11 @@ export class AgentSessionWrapper {
         } finally {
           if (!this.isRunning()) this.forceShutdownOnIdle = false;
         }
+
+      case "run_advisor":
+        // 手动触发一次顾问审查（不受 mode=manual/auto 限制）。
+        void this.maybeRunAdvisor(true);
+        return null;
 
       case "get_state": {
         const model = this.inner.model;
@@ -1023,9 +1120,20 @@ export class AgentSessionWrapper {
           // per-run changes again once the run ends.
           systemPrompt: this.exactSystemPrompt?.() ?? (this.inner.agent.state?.systemPrompt || this.inner.systemPrompt || ""),
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+          personaId: this.persona?.get() ?? null,
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
         };
+      }
+
+      case "set_persona": {
+        // Switch this conversation's persona. Takes effect next turn; the
+        // injection extension reads the ref each run. Persisted append-only.
+        const personaId = command.personaId === null ? null : typeof command.personaId === "string" ? command.personaId : undefined;
+        if (personaId === undefined) throw new Error("personaId must be a string or null");
+        appendSessionPersona(this.inner.sessionManager, personaId);
+        this.persona?.set(personaId);
+        return { personaId };
       }
 
       case "set_model": {
@@ -1398,6 +1506,10 @@ export class AgentSessionWrapper {
     // EventSource errors and reconnects instead of staying OPEN on a dead wrapper.
     this.emit({ type: "session_shutdown" });
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.advisorAbort) {
+      try { this.advisorAbort.abort(); } catch { /* ignore */ }
+      this.advisorAbort = null;
+    }
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
@@ -2139,6 +2251,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
         : {}),
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
+      disableAdvisor: true,
       ...(options?.mcpHost ? { mcpHost: options.mcpHost } : {}),
     });
     registerRpcWrapper(wrapper);
@@ -2497,6 +2610,20 @@ export async function startRpcSession(
     ? undefined
     : readSessionToolSelection(sessionEntries);
   const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
+  // The conversation's persona: its own pick, else the global default, else none.
+  // Subagents never use a persona (their profile drives the prompt).
+  // A prompt may carry the composer's explicit pick (a brand-new session): store it
+  // as this session's own entry so every later reload resolves the same persona.
+  const requestedPersonaId = subagentResources ? undefined : options.personaId;
+  if (requestedPersonaId !== undefined) appendSessionPersona(sessionManager, requestedPersonaId);
+  const personaIdRef: { current: string | null } = {
+    current: subagentResources
+      ? null
+      : requestedPersonaId !== undefined
+        // An explicit pick wins over the global default; a deleted persona reads as none.
+        ? (requestedPersonaId && readPersonaText(getAgentDir(), requestedPersonaId) ? requestedPersonaId : null)
+        : resolvePersonaId(getAgentDir(), readSessionPersona(sessionEntries)),
+  };
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
@@ -2602,6 +2729,7 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              createPersonalityExtension(() => personaIdRef.current, agentDir, () => readPersonaInjectSettings(agentDir).mode),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
@@ -2739,6 +2867,7 @@ export async function startRpcSession(
         });
       },
       suppressCompletionNotifications: Boolean(subagentResources),
+      persona: { get: () => personaIdRef.current, set: (id) => { personaIdRef.current = id; } },
       ...(mcpHost ? { mcpHost } : {}),
       ...(chatOnlyExtensionModel ? { chatOnlyExtensionModel } : {}),
     });

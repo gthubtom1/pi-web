@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { getDynamicHosts } from "./dynamic-hosts";
 
 function normalizeHostname(value: string): string {
   const unbracketed = value.startsWith("[") && value.endsWith("]")
@@ -48,6 +49,8 @@ function configuredHostnamesFromEnvironment(): string[] {
   return [
     process.env.PI_WEB_HOSTNAME,
     ...(process.env.PI_WEB_ALLOWED_HOSTS?.split(",") ?? []),
+    // Hostnames an active tunnel registered at runtime (exact host, not a wildcard).
+    ...getDynamicHosts(),
   ].filter((value): value is string => Boolean(value?.trim()));
 }
 
