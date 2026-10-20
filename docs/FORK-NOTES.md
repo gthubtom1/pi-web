@@ -92,11 +92,13 @@
   桥接进程内 SSE 的每条 `data:`。`bin/pi-web.js` 不再 spawn `next start`。
 - **隧道保活（B1/B2）**：`cloudflared` 意外退出按指数退避自动重连（1s→30s），地址/白名单随之恢复；
   「随 pi-web 自启」开关默认关，开则由 `instrumentation-node.ts` 启动时拉起。
-- **固定域名（C1–C4）**：`<agentDir>/pi-web-tunnel.json`（0600，`{mode,token,hostname,autoStart}`）+
-  `cloudflared tunnel run`（token 走 `TUNNEL_TOKEN` 环境变量）。面板里 token 打码、留空=不改，
-  保存/清空都要二次确认；`GET /api/remote` 只回 `hasToken`。
+- **固定域名（C1–C4，已按用户要求整块移除）**：曾经的 `<agentDir>/pi-web-tunnel.json`
+  （`{mode,token,hostname,autoStart}`）+ `cloudflared tunnel run`（token 走 `TUNNEL_TOKEN`）、
+  打码输入框与二次确认，全部删除。原因：那条路在 Cloudflare 侧的 Public Hostname 被配成
+  `service: https://<同一个域名>`，请求自己套自己，边缘回 `error 1000`；而"地址长期不变"由 Tailscale 提供。
+  现在该文件只剩 `{ version, autoStart }`；旧文件读出来只认 `autoStart`，下次写入把残留 token 清掉。
 - 新增文件：`bin/pi-web-server.js`、`lib/ws-protocol.cjs`、`lib/agent-event-transport.ts`、
-  `lib/tunnel-config.ts`、`lib/tunnel-config-view.ts`、`lib/realtime-settings.ts`、
+  `lib/tunnel-config.ts`、`lib/realtime-settings.ts`、
   `app/api/realtime/`；测试：`lib/ws-protocol.test.mjs`、`lib/agent-event-transport.test.mjs`、
   `lib/tunnel-config.test.mjs`、`lib/tunnel-named.test.mjs`、`lib/realtime-settings.test.mjs`。
 - 改的上游文件：`bin/pi-web.js`（改成 spawn 自建 server，传 `PI_WEB_PORT`）、`lib/tunnel.ts`（模式/保活/
@@ -131,9 +133,9 @@
 | `lib/request-security.ts` | 动态 host 白名单（隧道） | 中（安全相关） |
 | `bin/pi-web.js` / `bin/pi-web-options.js` | 打印密码/局域网地址；默认 `0.0.0.0` | 中 |
 | `bin/pi-web.js` | 不再 spawn `next start`，改为 spawn `bin/pi-web-server.js`（自建 server + WS upgrade） | **高**（上游改启动方式必冲突） |
-| `lib/tunnel.ts` | 命名隧道模式、指数退避保活、autoStart、`TUNNEL_TOKEN`；状态里加了 `mode/restarts/restarting/autoStart` | 中 |
+| `lib/tunnel.ts` | 指数退避保活、autoStart；状态里加了 `restarts/restarting/autoStart`（命名隧道模式已移除） | 中 |
 | `app/api/remote/route.ts` | `tunnel-config-save/clear`、`tunnel-autostart`，`GET` 带 `tunnelConfig`（只含 `hasToken`） | 中 |
-| `components/RemoteAccessSection.tsx` | 当前地址 + 复制、隧道模式二选一、固定域名 token/域名草稿与二次确认、自启开关 | 中 |
+| `components/RemoteAccessSection.tsx` | 三张卡片（局域网 / Tailscale / 公网）、当前地址 + 复制、自启开关 | 中 |
 | `hooks/useAgentSession.ts` | 事件源工厂（WS→SSE→poll）+ 推送静默时的 1.5s 会话重读 | 中 |
 | `instrumentation-node.ts` | 启动时按配置拉起隧道 + 退出时杀掉 cloudflared | 低 |
 | `app/globals.css` | 配色 + 输入框卡片 | 高（上游常调样式） |
@@ -144,6 +146,9 @@
 ---
 
 ## 4. 升级上游（给以后的智能体照着做）
+
+> 检测与决策的完整流程（两个上游的分工、四道闸门、验收清单）在
+> [`docs/UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)；先跑 `node scripts/upstream-check.mjs` 拿事实。
 
 ### 4.1 先判断"要不要升"
 

@@ -5,8 +5,6 @@ import { isOperatorPasswordEnabled } from "@/lib/web-auth";
 import { listRemoteAddresses } from "@/lib/remote-access";
 import { getTunnelState, startTunnel, stopTunnel, uninstallTunnel } from "@/lib/tunnel";
 import {
-  normalizeTunnelHostname,
-  normalizeTunnelToken,
   readTunnelConfig,
   tunnelConfigPath,
   tunnelConfigView,
@@ -53,19 +51,15 @@ function pairingView(agentDir?: string) {
   };
 }
 
-/** The fixed-domain settings, with the token reduced to `hasToken` (never echoed). */
+/** The tunnel's own settings: autoStart, plus where the file lives. */
 function tunnelConfigState() {
   return { ...tunnelConfigView(readTunnelConfig()), path: tunnelConfigPath() };
 }
 
 /**
- * GET /api/remote — everything Settings › Remote access needs:
- * this machine's addresses, the tunnel state, the two pairing codes (LAN and
- * public, which are separate switches), and the fixed-domain settings.
- *
- * The named tunnel's token is never in this answer: only `hasToken`. It is a
- * credential the operator typed and it does not belong in a response the page
- * keeps in memory.
+ * GET /api/remote — everything Settings › Remote access needs: this machine's
+ * addresses, the tunnel state, the three pairing codes (LAN, tailnet, public — each
+ * its own switch), and the tunnel's autoStart.
  */
 export async function GET(request: Request) {
   if (!isApiRequestAllowed(request)) return refusal(403, "Untrusted API request");
@@ -92,14 +86,9 @@ export async function GET(request: Request) {
  *   { action: "pairing-code", scope, mode: "random" } |
  *   { action: "pairing-code", scope, mode: "set", code } |
  *   { action: "tunnel-start" | "tunnel-stop" | "tunnel-uninstall" | "tunnel-check" } |
- *   { action: "tunnel-config-save", mode, token?, hostname?, autoStart?, confirm } |
- *   { action: "tunnel-config-clear", confirm } |
  *   { action: "tunnel-autostart", enabled }
  *
- * Every fixed-domain write is explicit and confirmable: nothing here is derived
- * from an environment variable or a hard-coded name, and a save that replaces a
- * credential or the public address of a running tunnel needs `confirm: true` — the
- * panel asks first, so a stray click changes nothing.
+ * The tunnel is a Cloudflare quick tunnel: no token, no hostname, nothing to paste.
  */
 export async function POST(request: Request) {
   if (!isApiRequestAllowed(request)) return refusal(403, "Untrusted API request");
@@ -111,10 +100,6 @@ export async function POST(request: Request) {
     mode?: unknown;
     enabled?: unknown;
     code?: unknown;
-    token?: unknown;
-    hostname?: unknown;
-    autoStart?: unknown;
-    confirm?: unknown;
   } | null;
   const action = typeof body?.action === "string" ? body.action : "";
 
@@ -166,74 +151,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ tunnel: stopTunnel() }, { headers: NO_STORE });
     case "tunnel-uninstall":
       return NextResponse.json({ tunnel: await uninstallTunnel() }, { headers: NO_STORE });
-    case "tunnel-config-save": {
-      const current = readTunnelConfig();
-      const mode = body?.mode === "named" ? "named" : body?.mode === "quick" ? "quick" : current.mode;
-      // An empty token field means "keep the saved one": the panel never receives
-      // the token, so it cannot send it back, and a blank box must not wipe it.
-      const submittedToken = typeof body?.token === "string" && body.token.trim() ? body.token : null;
-      const token = submittedToken === null ? current.token : normalizeTunnelToken(submittedToken);
-      if (submittedToken !== null && !token) {
-        return refusal(400, "That does not look like a tunnel token (copy it from the Cloudflare dashboard).");
-      }
-      const hostname = normalizeTunnelHostname(body?.hostname);
-      if (mode === "named") {
-        if (!token) return refusal(400, "The fixed domain needs the tunnel's token.");
-        if (!hostname) return refusal(400, "Enter the public hostname the tunnel serves, for example pi.example.com.");
-      }
-      const replacesCredential = Boolean(current.token) && (submittedToken !== null || mode !== current.mode || hostname !== current.hostname);
-      const running = getTunnelState().status !== "stopped";
-      if ((replacesCredential || running) && body?.confirm !== true) {
-        return NextResponse.json(
-          { error: "Saving this replaces the credential or the public address; confirm first.", needsConfirm: true },
-          { status: 409, headers: NO_STORE },
-        );
-      }
-      try {
-        updateTunnelConfig((config) => {
-          config.mode = mode;
-          config.token = mode === "named" ? (token ?? "") : "";
-          config.hostname = mode === "named" ? (hostname ?? "") : "";
-          if (typeof body?.autoStart === "boolean") config.autoStart = body.autoStart;
-        });
-      } catch (error) {
-        return refusal(500, error instanceof Error ? error.message : String(error));
-      }
-      // A live tunnel keeps serving the old mode until it is replaced; restart it so
-      // the address the panel shows is the one that works.
-      if (running) {
-        stopTunnel();
-        startTunnel(serverPort(request));
-      }
-      return NextResponse.json(
-        { tunnel: getTunnelState(), tunnelConfig: tunnelConfigState() },
-        { headers: NO_STORE },
-      );
-    }
-    case "tunnel-config-clear": {
-      const current = readTunnelConfig();
-      const running = getTunnelState().status !== "stopped";
-      if ((current.token || current.hostname || running) && body?.confirm !== true) {
-        return NextResponse.json(
-          { error: "Clearing removes the fixed domain and stops the tunnel; confirm first.", needsConfirm: true },
-          { status: 409, headers: NO_STORE },
-        );
-      }
-      if (running) stopTunnel();
-      try {
-        updateTunnelConfig((config) => {
-          config.mode = "quick";
-          config.token = "";
-          config.hostname = "";
-        });
-      } catch (error) {
-        return refusal(500, error instanceof Error ? error.message : String(error));
-      }
-      return NextResponse.json(
-        { tunnel: getTunnelState(), tunnelConfig: tunnelConfigState() },
-        { headers: NO_STORE },
-      );
-    }
     case "tunnel-autostart": {
       if (typeof body?.enabled !== "boolean") return refusal(400, "enabled must be a boolean");
       const enabled = body.enabled;

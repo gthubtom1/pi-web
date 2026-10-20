@@ -1,6 +1,6 @@
-# 远程三条：实时流 / 保活 / 固定域名
+# 远程三条：实时流 / 保活 /（已取消）固定域名
 
-> 状态：**A1–A5、B1–B3、C1–C4 全部实现并本机验证完毕**。手机实测只剩两件事卡在仓库之外：
+> 状态：**A1–A5、B1–B3、C1–C4 全部实现并验证完毕；C 组（固定域名）已按用户要求整块移除**（见文末「收尾记录」）。手机实测只剩两件事卡在仓库之外：
 > ① Cloudflare 那边的 DNS 记录类型（见文末「实测结果」）；② 手机端打开确认实时。
 > 设计说明已并入 [`remote-access.md`](remote-access.md) 与 [`sessions.md`](sessions.md)，本文件是**验收清单 + 结论**。
 
@@ -99,3 +99,26 @@
 4. 回来点面板里的「测一下」：通了它会显示毫秒数。然后再用手机打开 → 输 8 位配对码 / 扫码。
 
 DNS 改好后不需要重装、不需要重启，隧道和面板都是现成的。
+
+---
+
+## 收尾记录（固定域名已移除）
+
+C1–C4 做完后，用户决定不要固定域名，代码已整块删除：
+
+| 删除项 | 位置 |
+|---|---|
+| `mode: quick \| named`、命名隧道启动分支、token 环境变量、`NAMED_READY` 就绪判定 | `lib/tunnel.ts` |
+| `token` / `hostname` / `mode` 字段与校验器 | `lib/tunnel-config.ts`（只剩 `autoStart`）、`lib/tunnel-config-view.ts`（删除） |
+| `tunnel-config-save` / `tunnel-config-clear`、`GET` 里的 `hasToken` | `app/api/remote/route.ts` |
+| token/域名输入框、保存/清空、模式二选一 | `components/RemoteAccessSection.tsx` |
+| 26 个只服务于那块 UI 的 i18n 键 | `lib/i18n/messages/{en,zh-CN}.ts` |
+| `lib/tunnel-named.test.mjs`、旧的 `lib/tunnel-config.test.mjs` | 删；新的 `tunnel-config.test.mjs` 覆盖 autoStart 与旧文件迁移 |
+
+保留：快速隧道、保活（指数退避）、自启、当前地址 + 复制、三扇门（局域网 / Tailscale / 公网）各自独立的码与二维码。
+
+理由：那条路在 Cloudflare 侧的 Public Hostname 被配成 `service: https://<同一个域名>`，请求自己套自己，
+边缘直接 `error 1000`；而"地址长期不变"这件事 Tailscale 已经提供了，且不需要碰 Cloudflare 控制台。
+
+**遗留**：如果以后真要固定域名，除了把 C1–C4 从 git 历史里捡回来，还必须先在 Cloudflare 把该隧道的
+Public Hostname 指到 `http://127.0.0.1:<port>`（不是指向自己）。

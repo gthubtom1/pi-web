@@ -50,8 +50,8 @@ sections: every card repeats the same order — number, name, what it is (`remot
 switch with its caption, then 配对码 → 地址 → its QR. Each card's QR occupies the same fixed square
 (`QR_SLOT`) even when that door has no address yet; the empty square is a dashed placeholder with a
 one-line reason (`remote.qrEmpty*`), which keeps the three cards aligned instead of letting the page
-jump as a tunnel starts or stops. The public card carries the rest below a divider (status and its
-buttons, autoStart, tunnel mode and the fixed-domain form).
+jump as a tunnel starts or stops. On a phone (≤640px) the QR drops under the text and is centred. The
+public card carries the rest below a divider (status and its buttons, autoStart).
 
 ## Public tunnel (`lib/tunnel.ts`, `lib/dynamic-hosts.ts`, `app/api/remote/route.ts`)
 
@@ -74,47 +74,38 @@ buttons, autoStart, tunnel mode and the fixed-domain form).
   LAN or Tailscale does not depend on that DNS.
 
 - `tunnel-check` (the panel's "Test it") fetches the public address from this machine, so a success
-  proves the whole path (DNS, edge, connector, app) and a failure names the step that broke. A 403 whose
-  body is a Cloudflare error page, or a 15 s timeout, means the *zone* is wrong — see the DNS note at the
-  end of this file.
+  proves the whole path (DNS, edge, connector, app) and a failure names the step that broke.
 - Lifecycle lives on `globalThis` (survives hot reload). `startTunnel()` returns at once; the panel polls
   `/api/remote`. The exact hostname is registered with `lib/dynamic-hosts.ts` only while the tunnel is
   up, so request security trusts that one host and not a `trycloudflare.com` wildcard.
 
-## Two modes: quick tunnel or fixed domain (`lib/tunnel-config.ts`)
+## One mode: a Cloudflare quick tunnel (`lib/tunnel-config.ts`)
 
-- `mode` in `<agentDir>/pi-web-tunnel.json` (0600, `version: 1`, `{ mode, token, hostname, autoStart }`)
-  chooses one or the other. The file is the only place the credential lives: nothing is hard-coded,
-  nothing is derived from an environment variable, and `GET /api/remote` answers `hasToken` — never the
-  token itself. A blank token box in Settings therefore means "keep the saved one", and the panel has no
-  way to leak it.
-- Fixed domain: `cloudflared tunnel --no-autoupdate run` with the token in `TUNNEL_TOKEN`, deliberately
-  **not** on the command line (a token in `argv` shows up in `ps` and in every crash banner), and never
-  in a log line. `cloudflared` prints no URL in this mode, so readiness comes from its
-  `Registered tunnel connection` line, with a 20 s "still alive, assume ready" fallback; the public
-  address is `https://<hostname>` from the config. On Windows the 0600 request is advisory: the file
-  lives in the user's own agent dir, and Windows has no POSIX mode.
-- The hostname is validated (`lib/tunnel-config-view.ts`): one exact DNS name, lower case, no wildcard,
-  no scheme/port/path, no IP literal, no `localhost`. That one name — never a zone — is what
-  `lib/dynamic-hosts.ts` trusts while the tunnel is up, and a save that changes it removes the old one.
-- Writes are explicit and confirmed: `tunnel-config-save` / `tunnel-config-clear` answer
-  `409 { needsConfirm: true }` when the save would replace a credential or move a live tunnel's public
-  address, and the panel asks first (`remote.namedSaveConfirm`). A save restarts a running tunnel in the
-  new mode, so the address the panel shows is the one that works; the old one is unregistered at once.
-- **Keepalive (B1):** a tunnel that was *running* and then exited is restarted with exponential backoff
+- A **quick tunnel** (`cloudflared tunnel --url http://127.0.0.1:<port>`) gives a random
+  `https://<name>.trycloudflare.com` address: no account, no token, nothing to paste. The address holds
+  while the process lives and changes when it restarts, which is why the panel always shows the address
+  to copy and says not to use the browser history.
+- **A named tunnel (fixed hostname + operator token) was built and then removed.** Its Cloudflare side
+  never worked here — the tunnel's Public Hostname was configured as `service: https://<the same
+  hostname>`, so every request looped back into Cloudflare and the edge answered `error 1000` ("DNS
+  points to prohibited IP") — and a fixed address is what Tailscale already provides, without touching
+  the Cloudflare console. Removed with it: the token/hostname form, the `mode` field, the
+  `tunnel-config-save` / `tunnel-config-clear` actions, and every i18n key only they used. A
+  `pi-web-tunnel.json` left by that version is read for `autoStart` alone, and the next write drops the
+  leftover token from disk (`lib/tunnel-config.test.mjs` pins that).
+- `~/.pi/agent/pi-web-tunnel.json` (0600) now holds one thing: `{ version: 1, autoStart }`.
+- **Keepalive:** a tunnel that was *running* and then exited is restarted with exponential backoff
   (1 s doubling to 30 s, `restarts` in the state), keeping the address the phone is already on. A tunnel
-  that never came up stays in `error` — a broken credential must not spin forever. `stopTunnel()` clears
+  that never came up stays in `error` — a blocked network must not spin forever. `stopTunnel()` clears
   the intent, so a stop is never undone by the keepalive, and `installTunnelShutdownHook()` kills the
   child when the server exits.
-- **autoStart (B2):** off by default. When on, `instrumentation-node.ts` starts the tunnel at boot
-  (`PI_WEB_PORT`, which `bin/pi-web.js` passes to the server) in the saved mode. Turning it on without a
-  credential reports an error in the panel instead of retrying at every boot.
-- The panel shows the **current address** with a Copy button and says not to use the browser history
-  (B3): after a restart or a hostname change the old address is dead.
-- Reminder for the Cloudflare side: a named tunnel's public hostname is a **CNAME to
-  `<tunnel-id>.cfargotunnel.com`** (proxied), and its ingress route points at `http://127.0.0.1:<port>`.
-  An `A` record to a LAN IP there yields Cloudflare ``error 1000`` ("DNS points to prohibited IP"),
-  which looks like "the tunnel is down" from the phone while the connector is perfectly healthy.
+- **autoStart:** off by default. When on, `instrumentation-node.ts` starts the tunnel at boot
+  (`PI_WEB_PORT`, which `bin/pi-web.js` passes to the server).
+- The panel shows the **current address** with a Copy button and says not to use the browser history:
+  after a restart the old address is dead (Cloudflare answers `530` for a stopped quick tunnel).
+- If the named mode is ever resurrected: its public hostname must be a **CNAME to
+  `<tunnel-id>.cfargotunnel.com`** (proxied) whose ingress route points at `http://127.0.0.1:<port>`,
+  never at the public hostname itself.
 
 ## What the pairing code protects, and how hard it is to guess
 
@@ -136,9 +127,9 @@ symlink-resolving check behind `/api/files`.
 Why it matters: the allowed roots are the sessions' **cwds**, so a session opened in the home directory
 puts the whole agent dir in reach. Measured before the fix: a paired phone on the public hostname could
 `GET /api/files/.../&#8203;.pi/agent/pi-web-tunnel.json?type=read` and receive the named tunnel's token,
-while `/api/remote` carefully answers only `hasToken`. A paired device already has the terminal and the
-agent, so this was never an escalation — but it defeated the reason the token is stored behind
-`hasToken` in the first place.
+while `/api/remote` and the panel never echo a credential the server keeps to itself. A paired device
+already has the terminal and the agent, so this was never an escalation — but it defeated the reason
+those files are treated as secrets in the first place.
 
 ## LAN / Tailscale addresses (`lib/remote-access.ts`)
 

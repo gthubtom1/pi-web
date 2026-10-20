@@ -3,14 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import type { TunnelMode } from "@/lib/tunnel-config-view";
 import { ConfigButton, ConfigNotice, ConfigSwitch } from "./SettingsUi";
 import { QrCode } from "./QrCode";
 
 interface RemoteAddress { name: string; address: string }
 interface TunnelState {
   status: "stopped" | "starting" | "running" | "error";
-  mode: TunnelMode;
   url: string | null;
   hostname: string | null;
   error: string | null;
@@ -22,12 +20,9 @@ interface TunnelState {
   restarting: boolean;
   autoStart: boolean;
 }
-/** The fixed-domain settings; the token only as `hasToken` (the server never echoes it). */
+/** The tunnel's own settings. A quick tunnel has no token or hostname to hold. */
 interface TunnelConfigInfo {
-  mode: TunnelMode;
-  hostname: string;
   autoStart: boolean;
-  hasToken: boolean;
   path: string;
 }
 interface PairingScope { enabled: boolean; code: string; secret: string }
@@ -76,27 +71,16 @@ export function RemoteAccessSection() {
   const [editing, setEditing] = useState<Scope | null>(null);
   const [draft, setDraft] = useState("");
   const [check, setCheck] = useState<CheckResult | null>(null);
-  // Fixed-domain drafts. `null` means "not chosen yet": the saved mode applies.
-  const [modeDraft, setModeDraft] = useState<TunnelMode | null>(null);
-  const [tokenDraft, setTokenDraft] = useState("");
-  const [hostnameDraft, setHostnameDraft] = useState("");
-  const [draftsReady, setDraftsReady] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/remote");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const next = await res.json() as RemoteInfo;
-      setInfo(next);
-      if (!draftsReady) {
-        setModeDraft(next.tunnelConfig.mode);
-        setHostnameDraft(next.tunnelConfig.hostname);
-        setDraftsReady(true);
-      }
+      setInfo(await res.json() as RemoteInfo);
     } catch (err) {
       setError(String(err));
     }
-  }, [draftsReady]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -163,41 +147,6 @@ export function RemoteAccessSection() {
       setCheck(json.check as CheckResult);
     });
 
-  /**
-   * Save the fixed domain. Both fields are drafts: a blank token box keeps the
-   * saved credential (this page never receives it), and the confirmation names the
-   * consequence — the old public address stops working at once.
-   */
-  const saveTunnelConfig = () => {
-    const mode: TunnelMode = modeDraft ?? info?.tunnelConfig.mode ?? "quick";
-    if (!window.confirm(t("remote.namedSaveConfirm"))) return;
-    void run("tunnel-config-save", async () => {
-      const json = await post({
-        action: "tunnel-config-save",
-        mode,
-        ...(tokenDraft.trim() ? { token: tokenDraft.trim() } : {}),
-        hostname: mode === "named" ? hostnameDraft.trim() : "",
-        confirm: true,
-      });
-      applyTunnelState(json);
-      setTokenDraft("");
-      const config = json.tunnelConfig as TunnelConfigInfo | undefined;
-      if (config) setHostnameDraft(config.hostname);
-    });
-  };
-
-  const clearTunnelConfig = () => {
-    if (!window.confirm(t("remote.namedClearConfirm"))) return;
-    void run("tunnel-config-clear", async () => {
-      const json = await post({ action: "tunnel-config-clear", confirm: true });
-      applyTunnelState(json);
-      setTokenDraft("");
-      setHostnameDraft("");
-      setModeDraft("quick");
-      setCheck(null);
-    });
-  };
-
   const toggleAutoStart = (enabled: boolean) =>
     run("tunnel-autostart", async () => {
       applyTunnelState(await post({ action: "tunnel-autostart", enabled }));
@@ -251,18 +200,10 @@ export function RemoteAccessSection() {
     border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)", width: 150,
     textTransform: "uppercase", fontFamily: "var(--font-mono)", letterSpacing: "0.1em",
   };
-  /** The fixed-domain fields: ordinary text, no upper-casing — a token and a hostname. */
-  const fieldStyle: React.CSSProperties = {
-    height: 30, padding: "0 8px", fontSize: 12, borderRadius: 6,
-    border: "1px solid var(--border)", background: "var(--bg)", color: "var(--text)",
-    width: 260, maxWidth: "100%", fontFamily: "var(--font-mono)",
-  };
   const dividerStyle: React.CSSProperties = { height: 1, background: "var(--border)", margin: "14px 0 0" };
-  const subHeadStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "var(--text)", marginTop: 14 };
 
   const tunnel = info?.tunnel;
   const config = info?.tunnelConfig;
-  const mode = modeDraft ?? config?.mode ?? "quick";
   const lanOrigin = info && info.lan[0] ? `http://${info.lan[0].address}:${info.port}/` : "";
   const tailscaleOrigin = info && info.tailscale[0] ? `http://${info.tailscale[0].address}:${info.port}/` : "";
   const tunnelOrigin = tunnel?.status === "running" && tunnel.url ? `${tunnel.url}/` : "";
@@ -462,6 +403,7 @@ export function RemoteAccessSection() {
                 action: switchWithCaption("public", info.pairing.public.enabled),
                 children: (
                   <>
+                    <div style={hintStyle}>{t("remote.tunnelHint")}</div>
                     <div style={hintStyle}>{t("remote.currentAddressHint")}</div>
                     {pairingRow("public")}
                     {addressRow(tunnelOrigin, "tunnel")}
@@ -526,93 +468,6 @@ export function RemoteAccessSection() {
                       />
                     </div>
 
-                    <div style={dividerStyle} />
-                    <div style={subHeadStyle}>{t("remote.modeLabel")}</div>
-                    <div style={{ ...rowStyle, marginTop: 8 }}>
-                      <ConfigButton
-                        variant={mode === "quick" ? "primary" : "secondary"}
-                        size="small"
-                        onClick={() => setModeDraft("quick")}
-                        disabled={busy !== null}
-                      >
-                        {t("remote.modeQuick")}
-                      </ConfigButton>
-                      <ConfigButton
-                        variant={mode === "named" ? "primary" : "secondary"}
-                        size="small"
-                        onClick={() => setModeDraft("named")}
-                        disabled={busy !== null}
-                      >
-                        {t("remote.modeNamed")}
-                      </ConfigButton>
-                    </div>
-
-                    {mode === "named" ? (
-                      <>
-                        <div style={{ ...rowStyle, marginTop: 10 }}>
-                          <span style={labelStyle}>{t("remote.namedTokenLabel")}</span>
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={tokenDraft}
-                            onChange={(e) => setTokenDraft(e.target.value)}
-                            placeholder={config?.hasToken ? t("remote.namedTokenSaved") : t("remote.namedTokenPlaceholder")}
-                            style={fieldStyle}
-                            aria-label={t("remote.namedTokenLabel")}
-                          />
-                        </div>
-                        <div style={rowStyle}>
-                          <span style={labelStyle}>{t("remote.namedHostnameLabel")}</span>
-                          <input
-                            type="text"
-                            autoComplete="off"
-                            spellCheck={false}
-                            value={hostnameDraft}
-                            onChange={(e) => setHostnameDraft(e.target.value.trim().toLowerCase())}
-                            placeholder={t("remote.namedHostnamePlaceholder")}
-                            style={fieldStyle}
-                            aria-label={t("remote.namedHostnameLabel")}
-                          />
-                        </div>
-                        <div style={rowStyle}>
-                          <ConfigButton
-                            variant="primary"
-                            size="small"
-                            onClick={saveTunnelConfig}
-                            disabled={busy !== null || !hostnameDraft.trim() || (!config?.hasToken && !tokenDraft.trim())}
-                          >
-                            {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
-                          </ConfigButton>
-                          <ConfigButton
-                            variant="ghost"
-                            size="small"
-                            onClick={clearTunnelConfig}
-                            disabled={busy !== null || (!config?.hasToken && !config?.hostname)}
-                          >
-                            {t("remote.namedClear")}
-                          </ConfigButton>
-                        </div>
-                        <div style={hintStyle}>{t("remote.namedSetupHint", { port: String(info.port) })}</div>
-                        {!config?.hasToken && !tokenDraft.trim() ? <div style={hintStyle}>{t("remote.namedNotConfigured")}</div> : null}
-                      </>
-                    ) : (
-                      <>
-                        <div style={hintStyle}>{config?.mode === "named" ? t("remote.switchToQuickHint") : t("remote.modeHint")}</div>
-                        {config?.mode === "named" ? (
-                          <div style={rowStyle}>
-                            <ConfigButton
-                              variant="secondary"
-                              size="small"
-                              onClick={saveTunnelConfig}
-                              disabled={busy !== null}
-                            >
-                              {busy === "tunnel-config-save" ? t("remote.namedSaving") : t("remote.namedSave")}
-                            </ConfigButton>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
                   </>
                 ),
               })}

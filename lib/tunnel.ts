@@ -5,17 +5,19 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { resolveAgentDir } from "./agent-dir";
 import { resolveOutboundProxy } from "./local-proxy";
 import { addDynamicHost, removeDynamicHost } from "./dynamic-hosts";
-import { readTunnelConfig, type TunnelMode } from "./tunnel-config";
+import { readTunnelConfig } from "./tunnel-config";
 
 /**
  * The public tunnel: `cloudflared` exposing this server to a phone on another
  * network (no public IP, CGNAT). Outbound-only, free.
  *
- * Two modes, chosen in Settings › Remote access (lib/tunnel-config.ts):
- *   quick — a random `https://<name>.trycloudflare.com` address, no account;
- *   named — a fixed hostname the operator created in Cloudflare, run with that
- *           tunnel's token (`cloudflared tunnel run`, token in TUNNEL_TOKEN so it
- *           never appears in `ps` or a log).
+ * It is a Cloudflare **quick tunnel**: a random `https://<name>.trycloudflare.com`
+ * address, no account and no token. The address is stable while the process lives
+ * and changes when it restarts; that is the trade it makes, and the reason the
+ * panel always shows the address to copy instead of trusting the browser history.
+ * (A named tunnel with an operator token and a fixed hostname was built and then
+ * removed: its Cloudflare side was never usable here, and a fixed address is what
+ * Tailscale already provides.)
  *
  * Lifecycle is a singleton on globalThis: start/stop from Settings or from
  * autoStart at boot, and the exact hostname is registered with request-security
@@ -26,13 +28,10 @@ import { readTunnelConfig, type TunnelMode } from "./tunnel-config";
 export type TunnelStatus = "stopped" | "starting" | "running" | "error";
 /** What a "starting" tunnel is busy with, so the panel can say something useful. */
 export type TunnelPhase = "idle" | "downloading" | "connecting";
-export type { TunnelMode };
 
 export interface TunnelState {
   status: TunnelStatus;
-  /** Which kind of tunnel this state describes. */
-  mode: TunnelMode;
-  /** The address to open: the quick tunnel's random URL, or https://<hostname>. */
+  /** The address to open: the quick tunnel's random URL. */
   url: string | null;
   /** The exact hostname request-security trusts while the tunnel is up. */
   hostname: string | null;
@@ -76,10 +75,7 @@ declare global {
 }
 
 const TRYCLOUDFLARE_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
-const NAMED_READY = /Registered tunnel connection|Registered tunnel|Connection [a-z0-9-]+ registered/i;
 const START_TIMEOUT_MS = 45_000;
-/** A named tunnel is trusted this long after launch when it is still alive and quiet. */
-const NAMED_ASSUME_READY_MS = 20_000;
 const RESTART_BASE_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 
@@ -87,7 +83,6 @@ function initialState(): TunnelState {
   const config = readTunnelConfig();
   return {
     status: "stopped",
-    mode: config.mode,
     url: null,
     hostname: null,
     error: null,
@@ -120,12 +115,10 @@ function runtime(): TunnelRuntime {
 
 export function getTunnelState(): TunnelState {
   const rt = runtime();
-  // autoStart and the mode live in the config file, which Settings writes directly;
-  // read them here so the panel never shows a stale switch or a stale mode (while a
-  // tunnel runs, its own mode is the one that describes it).
+  // autoStart lives in the config file, which Settings writes directly; read it here
+  // so the panel never shows a stale switch.
   const config = readTunnelConfig();
   if (config.autoStart !== rt.state.autoStart) rt.state.autoStart = config.autoStart;
-  if (rt.state.status === "stopped" && config.mode !== rt.state.mode) rt.state.mode = config.mode;
   return { ...rt.state, binaryInstalled: existsSync(storedBinaryPath()) };
 }
 
@@ -284,7 +277,6 @@ export function startTunnel(port: number): TunnelState {
     url: null,
     hostname: null,
     startedAt: null,
-    mode: config.mode,
     autoStart: config.autoStart,
     restarts: 0,
   });
@@ -292,19 +284,9 @@ export function startTunnel(port: number): TunnelState {
   return getTunnelState();
 }
 
-/**
- * Boot-time autoStart (B2): start whatever mode the config says, when the
- * operator asked for it. Returns null when autoStart is off.
- */
+/** Boot-time autoStart (B2): bring the tunnel up when the operator asked for it. */
 export function autoStartTunnel(port: number): TunnelState | null {
-  const config = readTunnelConfig();
-  if (!config.autoStart) return null;
-  if (config.mode === "named" && (!config.token || !config.hostname)) {
-    // AutoStart was left on but the credential is gone: do not spin on a failure
-    // at every boot, report it in the panel instead.
-    setState({ mode: "named", autoStart: true, status: "error", error: "Fixed domain is enabled but its token or hostname is missing." });
-    return getTunnelState();
-  }
+  if (!readTunnelConfig().autoStart) return null;
   return startTunnel(port);
 }
 
@@ -323,8 +305,8 @@ export function stopTunnel(): TunnelState {
   }
   unregisterHost(rt.state.hostname);
   rt.starting = null;
-  // The mode and the autoStart switch come from the config file, not from the
-  // state of the tunnel that just went down: Settings is what decides them.
+  // autoStart comes from the config file, not from the state of the tunnel that
+  // just went down: Settings is what decides it.
   rt.state = { ...initialState(), restarts: rt.state.restarts };
   rt.stopping = false;
   return getTunnelState();
@@ -353,21 +335,9 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
   rt.port = port;
   rt.starting = null;
 
-  const config = readTunnelConfig();
-  const mode = config.mode;
-  if (mode === "named" && (!config.token || !config.hostname)) {
-    setState({
-      status: "error",
-      mode,
-      phase: "idle",
-      error: "The fixed domain needs a token and a hostname. Save them in Settings › Remote access.",
-    });
-    return;
-  }
-
   let bin: { path: string; system: boolean };
   try {
-    setState({ mode, phase: "downloading" });
+    setState({ phase: "downloading" });
     bin = await ensureCloudflared();
     if (rt.generation !== generation) return;
     setState({ phase: "connecting" });
@@ -387,12 +357,7 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
     env.HTTP_PROXY = proxy;
     env.ALL_PROXY = proxy;
   }
-  // The named tunnel's credential travels in the environment, never on the command
-  // line (so it stays out of `ps` output and any crash banner).
-  const args = mode === "named"
-    ? ["tunnel", "--no-autoupdate", "run"]
-    : ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${port}`];
-  if (mode === "named") env.TUNNEL_TOKEN = config.token;
+  const args = ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", `http://127.0.0.1:${port}`];
 
   await new Promise<void>((resolve) => {
     const child = spawn(bin.path, args, {
@@ -407,7 +372,6 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (assumeTimer) clearTimeout(assumeTimer);
       setState(patch);
       resolve();
     };
@@ -416,29 +380,6 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
     // initialize DNS local resolver", "dial tcp … i/o timeout") that line is the
     // only useful thing to show, instead of a bare timeout.
     let lastLine = "";
-    // A named tunnel reports no URL: its address is the configured hostname.
-    let namedReady = false;
-    const settleNamed = () => {
-      if (mode !== "named" || namedReady) return;
-      namedReady = true;
-      const hostname = config.hostname;
-      if (hostname) addDynamicHost(hostname);
-      const previous = runtime().state.hostname;
-      // A keepalive restart of a quick tunnel can land on a new random name; the
-      // old one stops being trusted so only the live address is reachable.
-      if (previous && previous !== hostname && !runtime().state.restarting) unregisterHost(previous);
-      finish({
-        status: "running",
-        phase: "idle",
-        url: hostname ? `https://${hostname}` : null,
-        hostname: hostname || null,
-        error: null,
-        startedAt: runtime().state.startedAt ?? Date.now(),
-        restarting: false,
-        restarts: runtime().state.restarts + (isRestart ? 1 : 0),
-      });
-    };
-
     const scan = (chunk: Buffer) => {
       const text = chunk.toString();
       for (const rawLine of text.split(String.fromCharCode(10))) {
@@ -446,11 +387,6 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
         // Drop ANSI colour codes and other control characters.
         const trimmed = line.split("").filter((ch) => ch >= " ").join("").trim();
         if (trimmed) lastLine = trimmed.slice(0, 300);
-      }
-      if (mode === "named") {
-        // Never echo a line that could carry the token.
-        if (NAMED_READY.test(text)) settleNamed();
-        return;
       }
       const match = text.match(TRYCLOUDFLARE_URL);
       if (match) {
@@ -482,7 +418,7 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
       const wasRunning = runtime().state.status === "running" || runtime().state.restarting === true;
       const wasStopping = runtime().stopping;
       rt.child = null;
-      if (mode === "quick") unregisterHost(runtime().state.hostname);
+      unregisterHost(runtime().state.hostname);
       if (settled) {
         // Already running: an unexpected exit restarts it (B1) instead of going dark.
         if (wasRunning && rt.desired && !wasStopping) {
@@ -502,22 +438,10 @@ async function runStart(port: number, isRestart: boolean): Promise<void> {
 
     const timer = setTimeout(() => {
       if (settled) return;
-      if (mode === "named" && child.exitCode === null) {
-        // No URL line is ever printed in this mode; a quiet, living process is a
-        // working tunnel to the hostname the operator configured.
-        settleNamed();
-        return;
-      }
       try { child.kill(); } catch { /* ignore */ }
       finish({ status: "error", error: withDetail("Timed out waiting for the tunnel URL (network may be blocking Cloudflare).") });
     }, START_TIMEOUT_MS);
     timer.unref?.();
-    // A named tunnel usually registers within seconds; waiting the full timeout to
-    // say "running" would keep the panel saying "starting" long after it works.
-    const assumeTimer = mode === "named"
-      ? setTimeout(() => settleNamed(), NAMED_ASSUME_READY_MS)
-      : null;
-    assumeTimer?.unref?.();
   });
 }
 
