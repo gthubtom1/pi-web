@@ -110,7 +110,7 @@ NODE_OPTIONS=--max-old-space-size=9216 npm run build
 - 新面板是否复用 `SettingsUi` 的分区/标题/按钮/开关（不要自造一套）
 - 同一操作在不同位置是否用同一文案与同一确认方式
 - 新主题是否只影响自己（不得改动其他主题变量）
-- 与上游 `agegr/pi-web` 的约定是否被破坏（**禁止给扩展 API 增加 pi-web 专属字段**）
+- 与 pi 的扩展 API 约定是否被破坏（**禁止给扩展 API 增加 pi-web 专属字段**）
 
 ---
 

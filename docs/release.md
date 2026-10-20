@@ -1,214 +1,108 @@
-# Release Checklist
+# 发布流程（本仓库自己的）
 
-This repo publishes two artifacts for each release:
-
-- npm package: `@agegr/pi-web`
-- GitHub Release: `agegr/pi-web`
-
-Use this checklist from a clean `main` checkout.
-
-## 1. Preflight
+每次发布产出**一样东西**：一个**预构建 tarball**，挂在 GitHub Release 上。别人用它安装时不需要构建：
 
 ```bash
-git fetch origin
-git status --short --branch
-git log --oneline --decorate -5
-git rev-list --left-right --count main...origin/main
-gh auth status
-npm whoami
-node -e "const p=require('./package.json'); console.log(p.version)"
-lsof -nP -iTCP:30141 -sTCP:LISTEN
-ls .next/server/route-cache
+npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
+  https://github.com/gthubtom1/pi-web/releases/download/v<版本>/pi-web-fork-<版本>.tgz
 ```
 
-Expected:
+> 本项目**不发布到 npm**。任何 registry 上的同名包都不是它。发布只做 GitHub Release。
 
-- `git status` is clean, or only contains changes you intentionally plan to release.
-- `main` and `origin/main` are aligned (`0	0`).
-- GitHub is authenticated as an account that can push and create releases.
-- npm is authenticated as an account that can publish `@agegr/pi-web`.
-- No dev server is listening on 30141: the production build rewrites `.next/` and breaks a running `npm run dev`. Stop it first.
-- `.next/server/route-cache/` does not exist. An e2e run in `start` mode writes it (`next start` does, the build does not), and it would be published. Delete it if present.
+从干净的 `main` 开始执行。
 
-Before bumping, confirm the next version is free (replace `<version>`):
+## 1. 预检
 
 ```bash
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/   # expect E404
-git ls-remote --tags origin v<version>                                            # expect empty
+git switch main
+git pull --ff-only
+git status --short            # 必须为空
+node_modules/.bin/tsc --noEmit
+npm run lint
+npm test 2>&1 | tail -3       # 与基线的失败集合比对，不看总数
 ```
 
-## 2. Publish to npm
+失败集合里只能有**已知环境性失败**（Windows 的 ESM 路径、`fileURLToPath` 在 `D:\`、`EBUSY rmdir`、MCP 集成）。
+出现新失败就停下来修，不要带着发布。
 
-Patch release:
+## 2. 版本号（只有三处）
 
 ```bash
-npm run release
+npm version patch --no-git-tag-version     # package.json + package-lock.json
 ```
 
-The release script runs:
+然后改这两个文件里**安装 URL 的版本号**（它们是目前唯一写死版本的地方）：
+
+- `README.md` 的 Quick Start
+- `docs/INSTALL.md` 的 §1 A
 
 ```bash
-npm version patch --no-git-tag-version && npm run build && npm publish --access public
+grep -n "releases/download/v" README.md docs/INSTALL.md
 ```
 
-`npm run release` only bumps the patch number. For a minor (or major) release, set the version yourself and run the other two steps separately:
+## 3. 构建 + 打包
 
 ```bash
-npm version <x.y.0> --no-git-tag-version
-npm run build
-npm publish --access public
+npm run release:tarball
 ```
 
-Choosing the bump: look at `git log --oneline v<previous>..HEAD`. A batch of `feat:` commits (new UI, new commands, new settings) is a minor; only fixes and small adjustments is a patch. Decide before running the script, since a published version cannot be reused.
+它会：`next build`（内存不够时 `PI_WEB_BUILD_HEAP_MB=14336`）→ 按 `package.json` 的 `files`
+白名单 `npm pack` → 打印 tarball 大小和**给别人用的那条安装命令**。
 
-Notes:
+产物应该 **5–7 MB**。如果它变成上百 MB，说明 `files` 的排除失效了——最可能是
+`.next/**/*.nft.json`（每路由一个 20+ MB 的依赖追踪清单，运行时不需要）又被打进去了，别发布。
 
-- This bumps `package.json` and `package-lock.json`.
-- It intentionally runs a production build. Do not run `next build` during normal development; release work is the exception.
-- A newly published version may take a few minutes to show up. `npm view @agegr/pi-web@<version> version` can return E404 and `npm view @agegr/pi-web version` can show the previous version even though the publish printed `+ @agegr/pi-web@<version>`. This is registry propagation, not a failed publish: do not publish again. Poll the registry until the version appears:
+## 4. 验收这个包（发布前，必做）
 
 ```bash
-curl -s https://registry.npmjs.org/@agegr%2Fpi-web/<version> | head -c 80   # JSON once it exists, "version not found" before
-npm view @agegr/pi-web dist-tags --registry https://registry.npmjs.org/
-npm view @agegr/pi-web versions --json --registry https://registry.npmjs.org/
+# 装到一个临时前缀，别动本机现有安装
+P="$(mktemp -d)"
+npm install -g --prefix "$P" --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs ./pi-web-fork-<版本>.tgz
+"$P/pi-web" version                     # 应打印新版本
+"$P/pi-web" -p 30197 --no-open &        # 换一个端口，避免顶掉正在用的
+sleep 20
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:30197/api/web-auth   # 200
 ```
 
-## 3. Commit the Version Bump
+再在浏览器里打开 `http://127.0.0.1:30197/`：设置面板 8 个 tab 能切、控制台无报错、
+发一条消息能看到逐段输出（或至少 `/api/sessions` 有返回）。**这一步不通过就不要发。**
 
-Replace `<version>` with the new package version, for example `0.7.5`.
+## 5. 打标签
 
 ```bash
-git diff -- package.json package-lock.json
-git add package.json package-lock.json
-git commit -m "Release v<version>"
+git commit -am "release: <版本>"
+git tag -a v<版本> -m "pi-web-fork <版本>"
+git push origin main v<版本>
 ```
 
-## 4. Tag and Push
+标签必须指向**将要发布的那次提交**（先提交、再打标签；改完代码重打标签要 `git tag -f` + `push -f`）。
+
+## 6. 发布
 
 ```bash
-git tag -a v<version> -m "v<version>"
-git push origin main v<version>
+npm run release:tarball -- --publish      # 用 gh 创建/覆盖 Release 并上传 tarball
+# 或者手动：
+gh release create v<版本> pi-web-fork-<版本>.tgz --repo gthubtom1/pi-web \
+  --title "pi-web-fork <版本> (prebuilt)" --notes "安装：<上面那条命令>"
 ```
 
-Push the release tag by name. Do not use `git push --tags`: the local checkout holds tags fetched from contributor forks that are not on origin, and `--tags` publishes them (it leaked a stray `v0.10.5`, on a commit that is on no branch, during the v0.11.0 release). If you ever need `--tags`, compare `git tag` with `git ls-remote --tags origin` first.
-
-Confirm the tag does not already exist before creating it when unsure:
+## 7. 发布后核对
 
 ```bash
-git ls-remote --tags origin v<version>
-gh release view v<version> --repo agegr/pi-web
+gh release view v<版本> --repo gthubtom1/pi-web --json assets --jq '.assets[].name'
+curl -sIL https://github.com/gthubtom1/pi-web/releases/download/v<版本>/pi-web-fork-<版本>.tgz | tail -1   # 200
 ```
 
-## 5. Generate Release Notes from Commits
+再在一台干净的机器（或临时前缀）用 README 里那条命令装一次，`pi-web version` 应为新版本。
 
-Use the previous release tag as the base.
+## 回滚
 
-```bash
-git log --oneline --decorate v<previous>..v<version>
-git log --format='%h%x09%s%n%b' v<previous>..v<version>
-git diff --stat v<previous>..v<version>
-```
+- **只换产物**：改完重新 `npm run release:tarball`，再 `gh release upload v<版本> <tgz> --clobber`。
+- **撤回整个版本**：`gh release delete v<版本> --repo gthubtom1/pi-web`，并把 `package.json` 版本退回、
+  两个 URL 改回旧版本，然后按 §3 重新发一个补丁版本（不要复用被打回的 tag）。
 
-Write the release notes from those commits, not from memory. Include both Chinese and English sections. Keep commit hashes or PR numbers next to each item when useful.
+## 注意事项
 
-- Check commands, flags and setting names against `README.md` and the code before writing them down.
-- Thank outside contributors by name: `git log --format='%h %an | %s' v<previous>..v<version>` lists authors, and the previous release's notes show the style.
-- Open with the install/upgrade command (`npm install -g @agegr/pi-web@latest`), as earlier releases did.
-- Write the notes to a file outside the repo (for example `NOTES=$(mktemp)`), or pass them through stdin as shown below. A `release-notes.md` in the repo root is an untracked file in the next release's `git status`.
-
-Suggested structure:
-
-```markdown
-## 中文
-
-基于 `v<previous>..v<version>` 的提交整理。
-
-### 新增
-
-- ...
-
-### 修复
-
-- ...
-
-### 改进
-
-- ...
-
-### 内部调整
-
-- 发布 npm 包 `@agegr/pi-web@<version>`。
-
-## English
-
-Prepared from commits in `v<previous>..v<version>`.
-
-### Added
-
-- ...
-
-### Fixed
-
-- ...
-
-### Improved
-
-- ...
-
-### Internal
-
-- Published npm package `@agegr/pi-web@<version>`.
-```
-
-## 6. Create or Update the GitHub Release
-
-Create a new release:
-
-```bash
-gh release create v<version> \
-  --repo agegr/pi-web \
-  --verify-tag \
-  --title "v<version>" \
-  --notes-file "$NOTES"
-```
-
-If the release already exists and only the notes need updating:
-
-```bash
-gh release edit v<version> \
-  --repo agegr/pi-web \
-  --notes-file "$NOTES"
-```
-
-You can avoid a temporary file by passing notes through stdin:
-
-```bash
-gh release edit v<version> --repo agegr/pi-web --notes-file - <<'EOF'
-## 中文
-
-...
-
-## English
-
-...
-EOF
-```
-
-## 7. Final Verification
-
-```bash
-gh release view v<version> --repo agegr/pi-web
-npm view @agegr/pi-web@<version> version --registry https://registry.npmjs.org/
-npm view @agegr/pi-web dist-tags --registry https://registry.npmjs.org/
-git status --short --branch
-git log --oneline --decorate -3
-git ls-remote --tags origin
-```
-
-Expected:
-
-- GitHub Release exists and is not a draft unless intentionally published as one.
-- npm exact version resolves and `latest` points at it (allow a few minutes, see step 2).
-- `git ls-remote --tags origin` shows no tag you did not mean to publish.
-- `main` is aligned with `origin/main`.
-- `HEAD` points at the release commit and `v<version>` tag.
+- `*.tgz` 已 gitignore：**产物不进仓库**，只挂 Release。
+- `fork.json` 随包发布（`pi-web update` 用它告诉用户该去哪个 releases 页），改仓库地址时一起改。
+- 版本号只在前述三处 + 标签出现；`docs/UPSTREAM-POLICY.md` 里的"当前状态"也顺手更新一下。

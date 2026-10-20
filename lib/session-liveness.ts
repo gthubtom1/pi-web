@@ -1,4 +1,7 @@
 const SESSION_LIVENESS_PROTOCOL_VERSION = 1;
+// The key is a stable, opaque identifier shared with extensions written for the
+// project this fork came from; its spelling is history, not a link. Renaming it
+// would silently stop those extensions from registering their leases.
 export const SESSION_LIVENESS_REGISTRY_KEY = "@agegr/pi-web/session-liveness/v1";
 export const SESSION_LIVENESS_LEASE_TTL_MS = 90_000;
 const SESSION_LIVENESS_LEASES_KEY = "@agegr/pi-web/session-liveness-leases/v1";

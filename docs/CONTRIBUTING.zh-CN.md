@@ -3,12 +3,12 @@
 本仓库是一个**独立项目**（二开之后自行演进）：
 
 - **先读 [`INSTALL.md`](INSTALL.md)** —— 安装、更新、卸载都走这个仓库；npm 上没有本项目的包，
-  任何 `npx @agegr/pi-web` / `npm i -g @agegr/pi-web` 装的都是上游项目，不要再这样引导用户。
+  不要 `npx`、也不要 `npm install -g <包名>`——npm 上没有本项目，任何包都不是它。
 - **动上游也拥有的文件前先读 [`FORK-NOTES.md`](FORK-NOTES.md)** —— 那里列了冲突面与每处改动的用途。
 - **升级 pi SDK 前先读 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)** —— 7 个包一起升，且有验证闸门。
 
-上游 `agegr/pi-web` 只作**参考**：pi 变了、要看看别人怎么适配时去读它的提交，但不要盲目合并，
-也不要再从那安装。
+参考用的上游项目只通过本地 `upstream` remote 访问（`git remote -v` 可见）：pi 变了、要看看别人怎么适配时
+去读它的提交，但不要盲目合并，也不要从那安装。
 
 ---
 
@@ -28,7 +28,7 @@ Pi Web 是 [pi coding agent](https://github.com/earendil-works/pi) 的轻量网�
 以下内容无论实现得多好，都不会合并：
 
 - **改变 pi 本身的行为**：系统提示词、工具行为、提示模板展开、重试、压缩，以及写进会话文件的内容。请到 pi 上游提出。
-- **可以做成 pi 扩展的功能**：比如定时消息、自定义命令、新的 provider。扩展在 pi 和 Pi Web 里都能用；定时发送就是用扩展解决的，见 [#666](https://github.com/agegr/pi-web/issues/666)。
+- **可以做成 pi 扩展的功能**：比如定时消息、自定义命令、新的 provider。扩展在 pi 和 Pi Web 里都能用（定时发送就是用扩展解决的）。
 - **只有 Pi Web 认的配置或扩展 API**：只有 Pi Web 读取的新配置文件；新的 `ctx.ui.*` 选项或 `extension_ui_request` 字段；给现有字段赋予新含义。pi 协议已经表达的东西，怎么显示由网页端自己决定。
 - **IDE 或 Git 客户端功能**：编辑文件、文件管理（新建、重命名、删除）、提交历史、第二套 diff 视图。文件查看器保持只读，编辑交给 agent 或你自己的编辑器。
 - **新的子系统或运行模式**：定时调度、长期运行的后台 agent、插件或 UI 插槽系统、第二种“精简”模式、多窗格布局。

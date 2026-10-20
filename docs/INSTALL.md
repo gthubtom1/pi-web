@@ -1,13 +1,13 @@
 # 安装 / 更新 / 卸载（这个仓库的完整流程）
 
-> 这个仓库是**独立项目**：npm 上没有它的包，任何 `npx @agegr/pi-web` / `npm i -g @agegr/pi-web`
-> 装的都是**别人的项目**。只从你的 git 仓库装。
+> 这个仓库是**独立项目**：npm 上没有它的包。**安装只用本文件里的 Release 链接或源码克隆**——
+> 不要 `npx`，也不要 `npm install -g <任何包名>`（不管它叫什么，都不是本项目）。
 >
 > 给智能体的一句话：**照本文件第 1 节执行即可**，不要引用上游 README 的安装方式。
 
 - 仓库：`https://github.com/gthubtom1/pi-web`
 - 上游 pi SDK：`@earendil-works/pi-*`（钉死版本，见 `package.json`）
-- 基于：`agegr/pi-web`（只作参考，不作为安装/更新来源）
+- 来源：从开源项目 Pi Web 分叉而来（署名见 `LICENSE`）；只作为参考，不是安装/更新来源
 
 ---
 

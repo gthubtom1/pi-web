@@ -12,9 +12,8 @@ const path = require("path");
 /**
  * `pi-web update` for this fork.
  *
- * This project is not published to npm: `@agegr/pi-web` on the registry is the
- * upstream project, and following it would replace this fork with someone else's
- * build. So there is no registry call here at all. The source of truth is the git
+ * This project is not published to npm: the registry holds a different project under a
+ * similar name, and following it would replace this fork with someone else's build. So there is no registry call here at all. The source of truth is the git
  * repository this machine was installed from:
  *
  *   - `npm run deploy` records that clone in `<agentDir>/pi-web-source.json`

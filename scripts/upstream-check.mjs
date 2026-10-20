@@ -159,8 +159,8 @@ for (const entry of pinned) {
 }
 line();
 if (!upstreamRef) {
-  line("pi-web upstream: no `upstream` remote. Add it with");
-  line("  git remote add upstream https://github.com/agegr/pi-web.git");
+  line("reference repository: no `upstream` remote is configured.");
+  line("  Add the project this fork came from as a read-only remote named `upstream` (its commits are reference material).");
 } else {
   line(`reference repository (${upstreamRef}), base ${report.upstream.base} — for reading, not merging:`);
   if (upstreamCommits.length === 0) {

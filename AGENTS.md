@@ -247,14 +247,14 @@ hooks/
 ## This project's identity: pi is the upstream
 
 **Install, update, uninstall:** [docs/INSTALL.md](docs/INSTALL.md). This repository is an **independent
-project**; nothing is published to npm. `npx @agegr/pi-web` / `npm install -g @agegr/pi-web` installs the
-*upstream* project — never point a user there. Install is `git clone … && npm install && npm run deploy`;
+project**; nothing is published to npm. Never install or update it from a package name or a third-party
+repository — only the Release URL in `docs/INSTALL.md` or a clone of this repository. Install is `git clone … && npm install && npm run deploy`;
 `npm run deploy` records the clone in `<agentDir>/pi-web-source.json`, and `pi-web update` compares that
 clone with its remote (git only, no registry).
 
 **Upgrading:** [docs/UPSTREAM-POLICY.md](docs/UPSTREAM-POLICY.md) — **pi** (`@earendil-works/pi-*`, pinned
-exactly, all seven together) is the upstream we follow; `agegr/pi-web` is a **reference** to read, not a
-merge authority. `node scripts/upstream-check.mjs` prints the pinned-vs-published versions, the reference's
+exactly, all seven together) is the upstream we follow; the project this fork came from is reachable only as the
+local `upstream` remote and is a **reference** to read, not a merge authority. `node scripts/upstream-check.mjs` prints the pinned-vs-published versions, the reference's
 new commits and the files both sides changed; then run the four gates and the 10-minute runtime acceptance.
 
 **Releases:** `npm run release:tarball -- --publish` builds, packs the prebuilt artifact (the
@@ -265,7 +265,7 @@ release URLs in `README.md` / `docs/INSTALL.md` together.
 Scripts worth knowing: `scripts/deploy.mjs` (build + global install + record the clone),
 `scripts/upstream-check.mjs` (the facts for an upgrade), `scripts/release-tarball.mjs` (the release).
 
-The fork is based on `agegr/pi-web` **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.1** with
+The fork is based on the open-source Pi Web **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.1** with
 `@earendil-works/*` at **1.3.0**. `fork.json` holds that identity (name, repository, install/update
 commands) so it is stated once.
 **A full external audit brief lives in [docs/AUDIT-BRIEF.md](docs/AUDIT-BRIEF.md)** — use it when a change needs a

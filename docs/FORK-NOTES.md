@@ -1,6 +1,6 @@
 # 这个仓库是怎么来的：上游基线 + 我们的改动 + 升级流程
 
-> 一句话：这是从 [`agegr/pi-web`](https://github.com/agegr/pi-web) **0.12.2 / `df163cd`** 分叉出来的
+> 一句话：这是从开源 Pi Web **0.12.2 / `df163cd`** 分叉出来的
 > **独立项目**（包名 `pi-web-fork`），在上面加了若干组功能。**pi 才是我们要跟的上游**；原作者的仓库
 > 现在只作参考（见 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)）。本文件是给"人"和"以后的智能体"看的
 > 对照表：**我们改了什么、动了哪些上游文件、装/升级走哪条路**。
@@ -14,7 +14,7 @@
 | 自己的仓库（`origin`，唯一事实源） | `https://github.com/gthubtom1/pi-web.git` |
 | 本仓库包名 / 版本 | `pi-web-fork` **0.13.0**（`fork.json` 是唯一出处） |
 | 安装 / 更新 | **只从这里**：`git clone … && npm install && npm run deploy`，之后 `pi-web update`（走 git，不走 npm）。见 [`INSTALL.md`](INSTALL.md) |
-| 参考仓库（`upstream`） | `https://github.com/agegr/pi-web.git` —— **只读参考，不合并、不从它安装** |
+| 参考仓库（本地 `upstream` remote，`git remote -v` 可见） | **只读参考，不合并、不从它安装** |
 | 分叉基线 | `0.12.2` / commit **`df163cd`** |
 | **上游（要跟的）** | **pi**：`@earendil-works/*` **1.3.0**（7 个包一起升，`--save-exact`；流程见 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)） |
 | Node | `>= 22.19.0`（开发机实测 Node 24.x） |
@@ -240,6 +240,6 @@ pi-web                # 启动（控制台打印局域网地址和登录密码�
 ## 5. 和上游的关系（发布/部署）
 
 - 部署方式与上游完全一致：`npm run dev` / `npm start` / `npx`（本仓库未发布到 npm；
-  发布需要把 `package.json` 的 `name` 改掉，否则会和 `@agegr/pi-web` 撞名）。
+  发布需要把 `package.json` 的 `name` 改掉，否则会和上游同名包撞名）。
 - 我们不维护自己的 npm 包，也不改上游的 `.next` 构建流程。
 - `bin/pi-web.js` 的行为差异只有两处：默认 `0.0.0.0`、启动时打印登录密码与局域网地址。

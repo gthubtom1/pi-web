@@ -1,19 +1,21 @@
 # Pi Web
 
-[English](../README.md) | [日本語](./README.ja.md) | [Русский](./README.ru.md)
+[English](../README.md)
 
-> **本仓库是 [上游 Pi Web](https://github.com/agegr/pi-web) 的 fork**（基线 `0.12.2` / commit `df163cd`），在上面加了：
+> **本项目是独立项目**（从开源 Pi Web 分叉而来，署名见 [LICENSE](../LICENSE)），在其之上加了：按对话切换的**人设**、
+> **规则**文件、**远程访问**（局域网 / Tailscale / 公网隧道，各有自己的配对码与二维码）、可选的**顾问**审查模型，
+> 以及两档**回退**。
+>
+> **安装、更新、卸载只用本仓库**（见 [INSTALL.md](./INSTALL.md)）。本项目没有发布到 npm，也不以任何第三方仓库
+> 作为安装或合并来源。我们改了什么、动了哪些上游侧文件：[FORK-NOTES.md](./FORK-NOTES.md)。
 > **按对话切换的多个人设**（模型选择器旁边）、**全局规则**、**远程访问**（局域网/Tailscale 地址、一次性扫码登录、Cloudflare 公网隧道）、
 > 可选的**顾问**审查模型，以及两种**回退**（整轮 / 只删最后一条回复）。
 > 我们改了什么、动了哪些上游文件、上游发新版时怎么合并：**[docs/FORK-NOTES.md](./FORK-NOTES.md)**。
 
 [pi 编程智能体](https://github.com/earendil-works/pi)的本地浏览器界面。Pi Web 与 pi 共用本机配置和会话文件，可在浏览器中查找和继续对话、运行智能体、配置模型与资源，并查看项目文件。
 
-**[在线体验演示 →](https://agegr.github.io/pi-web/)**：真实的 Pi Web 界面直接在浏览器里运行，带有示例会话、文件和模型。无需安装；回复都是预设内容，不会调用任何模型。
 
-中文微信群：请查看 [GitHub Discussions 帖子](https://github.com/agegr/pi-web/discussions/271)。
 
-![Pi Web 展示包含结构化 Markdown、工具调用和项目导航的 pi 会话](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
 
 ## 功能
 
@@ -36,8 +38,8 @@ npm run deploy
 pi-web
 ```
 
-> **本项目是独立仓库**：npm 上没有它的包。`npx @agegr/pi-web` / `npm install -g @agegr/pi-web`
-> 装的是**上游作者的项目**，不是这个。完整安装/更新/卸载流程见 [INSTALL.md](INSTALL.md)。
+> **本项目是独立仓库**：npm 上没有它的包。**安装只用上面的 Release 链接或源码克隆**——
+> 不要 `npx`，也不要 `npm install -g <任何包名>`。完整安装/更新/卸载流程见 [INSTALL.md](INSTALL.md)。
 
 服务就绪后，命令行会尝试自动打开浏览器。如果没有打开，请访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。Pi Web 默认监听 `0.0.0.0`，因此同一局域网内的手机或其他设备也能访问（服务就绪后控制台会打印局域网地址，如 `http://192.168.1.20:30141`）。只想本机访问请加 `--hostname 127.0.0.1`。
 
@@ -60,7 +62,7 @@ pi-web open [--port N]  # 在浏览器中打开正在运行的服务
 pi-web update [--check] # 更新全局 npm 安装
 ```
 
-更新时先运行 `pi-web stop`，再运行 `pi-web update`（也可以再次执行同一条安装命令）。卸载时运行 `npm uninstall -g @agegr/pi-web`。
+更新时重新安装最新的 Release（上面那条命令），或在源码克隆里 `pi-web stop` 后 `git pull --ff-only && npm run deploy`。卸载时运行 `npm uninstall -g pi-web-fork`。
 
 ## 配置
 

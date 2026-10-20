@@ -1,16 +1,17 @@
 # Pi Web
 
-[中文文档](./docs/README.zh-CN.md) | [日本語](./docs/README.ja.md) | [Русский](./docs/README.ru.md)
+[中文文档](./docs/README.zh-CN.md)
 
-> **This repository is a fork** of [upstream Pi Web](https://github.com/agegr/pi-web) (base `0.12.2`, commit `df163cd`) with extra features on top:
-> per-conversation **personas** (multiple persona cards, switchable per chat, next to the model selector), a **rules** file, **remote access** (LAN/Tailscale addresses, a QR/link that carries the remote password, Cloudflare quick tunnel), an opt-in **advisor** reviewer model, and two depths of **rewind** (whole turn, or just the last reply).
-> What we changed, which upstream files we touched, and how to merge an upstream release: **[docs/FORK-NOTES.md](./docs/FORK-NOTES.md)**. Base-version facts, upgrade checklist and acceptance list live there.
+> **This is an independent project** (a fork of the open-source Pi Web, credited in [LICENSE](./LICENSE)) with extra
+> features on top: per-conversation **personas**, a **rules** file, **remote access** (LAN / Tailscale / public tunnel,
+> each with its own pairing code and QR), an opt-in **advisor** reviewer model, and two depths of **rewind**.
+>
+> **Install, update and uninstall only ever use this repository** (see [docs/INSTALL.md](./docs/INSTALL.md)).
+> Nothing here is published to npm; no third-party repository is an install or merge source.
+> What this fork changed and which upstream-side files it touched: **[docs/FORK-NOTES.md](./docs/FORK-NOTES.md)**.
 
 Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi). Pi Web uses the same local configuration and session files as pi, so you can browse and resume conversations, run agent turns, configure models and resources, and inspect project files from a browser.
 
-**[Try the interactive demo →](https://agegr.github.io/pi-web/)** The real Pi Web UI runs entirely in your browser, with sample sessions, files and models. There is nothing to install; replies are pre-written and no model is called.
-
-![Pi Web displaying a pi session with structured Markdown, tool calls, and project navigation](https://raw.githubusercontent.com/agegr/pi-web/main/docs/screenshot2.png)
 
 ## Features
 
@@ -23,10 +24,9 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 
 ## Quick Start
 
-> **This is an independent project.** It is not published to npm: `npx @agegr/pi-web` or
-> `npm install -g @agegr/pi-web` installs the *upstream* project, not this one. Install from this
-> repository only. The full runbook (prerequisites, updating, uninstalling, troubleshooting) is
-> [docs/INSTALL.md](docs/INSTALL.md).
+> **This is an independent project, and it is not published to npm.** Install from this repository only —
+> no `npx` and no `npm install -g <package name>`, whatever the package is called. The full runbook
+> (prerequisites, updating, uninstalling, troubleshooting) is [docs/INSTALL.md](docs/INSTALL.md).
 
 Pi Web requires Node.js 22.19.0 or newer (`node --version`). **The prebuilt package installs in one
 command and compiles nothing** (`.next` is already inside it):
@@ -67,7 +67,7 @@ pi-web open [--port N]  # open a running server in the browser
 pi-web update [--check] # compare your git clone with its remote (no npm involved)
 ```
 
-To update, run `pi-web stop`, then `pi-web update` (or run the same install command again). To uninstall, run `npm uninstall -g @agegr/pi-web`.
+To update, install the newest release (the one-line install above), or in a source clone run `pi-web stop`, then `git pull --ff-only && npm run deploy`. To uninstall, run `npm uninstall -g pi-web-fork`.
 
 ## Configuration
 

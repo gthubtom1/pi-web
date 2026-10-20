@@ -2,7 +2,6 @@
   "name": "pi-web-fork",
   "repository": "https://github.com/gthubtom1/pi-web",
   "homepage": "https://github.com/gthubtom1/pi-web#readme",
-  "basedOn": "https://github.com/agegr/pi-web",
   "install": "git clone https://github.com/gthubtom1/pi-web.git && cd pi-web && npm install && npm run deploy",
   "update": "git -C <your clone> pull --ff-only && npm -C <your clone> run deploy",
   "note": "This is an independent project. npm has no published package for it: install and update from the git repository, never from the npm registry."
