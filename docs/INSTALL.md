@@ -23,32 +23,55 @@
 
 Windows 上**不要**用 `npx`，也不要装成别的名字：全局命令就叫 `pi-web`。
 
-## 1. 安装（一条命令）
+## 1. 安装（两种方式，选一个）
+
+### A. 预构建包 —— **一条命令，不编译**（推荐，和原版一样的体验）
+
+每次发布都会把**已经构建好的** `.next` 打成 tarball 挂到 GitHub Release 上，所以装的时候不需要
+在你机器上跑 Next 构建（也就不需要 14 GB 堆、不需要访问 Google Fonts）：
+
+```bash
+npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
+  https://github.com/gthubtom1/pi-web/releases/download/v0.13.0/pi-web-fork-0.13.0.tgz
+pi-web
+```
+
+- 首次约 **2-5 分钟**（大部分是下载 next/react/pi SDK 等依赖），**没有编译步骤**；npm 缓存热了之后是几十秒。
+- 版本号在 Release 页面：`https://github.com/gthubtom1/pi-web/releases`（把上面 URL 里的版本换掉即可）。
+- `--allow-scripts=…` 是 npm 11+ 的"允许安装脚本"白名单（`node-pty` 需要它来准备终端二进制）。
+
+### B. 源码 —— **给要改代码的人**
 
 ```bash
 git clone https://github.com/gthubtom1/pi-web.git
 cd pi-web
 npm install
-npm run deploy
+npm run dev        # 开发用：热更新，改完立刻生效
+# 或者装成全局命令：
+PI_WEB_BUILD_HEAP_MB=14336 npm run deploy
 ```
 
-`npm run deploy` 会：
+`npm run deploy` 会 `next build`（这台机器上需要大堆），然后把构建产物装成全局 `pi-web`，并把
+**这个克隆的位置**记进 `~/.pi/agent/pi-web-source.json`（`pi-web update` 靠它对比远端）。
 
-1. `next build`（这台机器上需要大堆：构建脚本默认 9 GB，内存不足时用
-   `PI_WEB_BUILD_HEAP_MB=14336 npm run deploy`）；
-2. 把构建产物装成全局命令 `pi-web`；
-3. 在 `~/.pi/agent/pi-web-source.json` 记下**这个克隆的位置**（`pi-web update` 要靠它）。
+### 为什么 A 比 B 快这么多
 
-装完启动：
+| | A 预构建包 | B 源码 |
+| --- | --- | --- |
+| 是否在本地编译 | **不编译**（`.next` 已包含在包里） | 编译（`next build`） |
+| 内存 | 普通内存 | 约 9-14 GB 堆 |
+| 网络 | 只下载依赖 | 依赖 + 构建期还要访问 `fonts.googleapis.com` |
+| 耗时 | 首次 2-5 分钟 | 10-15 分钟 |
+| 适合 | 只想用 | 要改代码 |
+
+### 发新版本时维护者要做的（一条命令）
 
 ```bash
-pi-web                 # 默认 http://127.0.0.1:30141，会自己开浏览器
-pi-web --no-open       # 不想开浏览器
-pi-web -p 3200         # 换端口
+npm run release:tarball -- --publish
 ```
 
-首次启动会生成登录用的密码/配对码，终端里会打印本机地址与局域网地址。
-**本机 `127.0.0.1` 永远不需要配对码**；手机等其他设备用 设置 › 远程访问 里的三扇门（局域网 / Tailscale / 公网）。
+它会构建、按 `package.json` 的 `files` 白名单打包（自动剔除 `.next/**/*.nft.json` 这类 1 GB 级的构建追踪文件，
+所以包只有 ~6 MB），然后用 `gh` 把 tarball 传到你仓库的 Release 上。打出来的 `.tgz` 已 gitignore，**不进仓库**。
 
 ## 2. 更新（跟自己的仓库走）
 
@@ -71,7 +94,7 @@ npm -C <你的克隆> run deploy
 
 ```bash
 pi-web stop
-npm uninstall -g pi-web-fork        # 移除全局命令
+npm uninstall -g pi-web-fork        # 移除全局命令（预构建包装的是同一个名字）
 ```
 
 用户数据（会话、配置、凭据）都在 `~/.pi/agent/`，**卸载不会删**。确认不需要了再手动清理：

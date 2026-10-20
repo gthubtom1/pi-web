@@ -28,19 +28,30 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 > repository only. The full runbook (prerequisites, updating, uninstalling, troubleshooting) is
 > [docs/INSTALL.md](docs/INSTALL.md).
 
-Pi Web requires Node.js 22.19.0 or newer (`node --version`). Then:
+Pi Web requires Node.js 22.19.0 or newer (`node --version`). **The prebuilt package installs in one
+command and compiles nothing** (`.next` is already inside it):
+
+```bash
+npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
+  https://github.com/gthubtom1/pi-web/releases/download/v0.13.0/pi-web-fork-0.13.0.tgz
+pi-web
+```
+
+Newer versions: pick the latest tarball on the [releases page](https://github.com/gthubtom1/pi-web/releases)
+and keep the same `npm install -g <url>` shape.
+
+**To work on the code instead**, install from source — that path does run a build:
 
 ```bash
 git clone https://github.com/gthubtom1/pi-web.git
 cd pi-web
 npm install
-npm run deploy      # builds, then installs the global `pi-web` command
-pi-web
+npm run dev         # development (hot reload)
+# PI_WEB_BUILD_HEAP_MB=14336 npm run deploy   # or install it as the global `pi-web` command
 ```
 
 `npm run deploy` also records this clone in `~/.pi/agent/pi-web-source.json`, which is what
-`pi-web update` compares against its remote. On a machine short of memory the build needs
-`PI_WEB_BUILD_HEAP_MB=14336 npm run deploy`.
+`pi-web update` compares against its remote.
 
 The CLI opens a browser after the server is ready. It binds `0.0.0.0` by default, so it is reachable from your phone or another device on the same network: the console prints the LAN URL (e.g. `http://192.168.1.20:30141`) once the server is ready. On the machine itself, open [http://127.0.0.1:30141](http://127.0.0.1:30141). To keep it local-only, pass `--hostname 127.0.0.1`.
 

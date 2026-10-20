@@ -30,6 +30,9 @@
     "!.next/cache",
     "!.next/dev",
     "!.next/**/*.js.map",
+    "!.next/**/*.nft.json",
+    "!.next/trace",
+    "!.next/types",
     "public",
     "lib/ws-protocol.cjs",
     "next.config.ts",
@@ -47,7 +50,8 @@
     "test:e2e": "node e2e/run.mjs",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
-    "deploy": "node scripts/deploy.mjs"
+    "deploy": "node scripts/deploy.mjs",
+    "release:tarball": "node scripts/release-tarball.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.3.0",
