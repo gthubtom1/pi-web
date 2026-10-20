@@ -1,5 +1,15 @@
 # Models and provider auth
 
+### pi 1.3.0 changed what a bare model id means
+
+`enabledModels` entries are resolved by the SDK (`resolveModelScopeWithDiagnostics`), and 1.3.0 changed an
+ambiguous bare id: `"same-id"` present on two providers used to pick **one** owner, and now resolves to
+**every** provider that has it. pi-web follows the SDK instead of inventing a rule: the Enabled-models
+panel lists both matches, and any edit rewrites the entry to explicit `provider/id` references.
+(`lib/model-scope.ts` still refuses an ambiguous entry for the model selector, so the picker never shows a
+half-resolved model.) Pinned by `lib/enabled-models-runtime.test.mjs`; found while upgrading 1.2.0 → 1.3.0,
+and it is the only behavioural change that upgrade produced in this project.
+
 ## Model defaults for new sessions
 `GET /api/models` returns `defaultModel` from `~/.pi/agent/settings.json`; `ChatWindow` pre-selects it for new sessions. Browser model/thinking picks are applied atomically while the AgentSession is built and are **session-scoped**: neither startup nor a mid-session `set_model` / `set_thinking_level` writes `settings.json`, as pi's `/model` and `/thinking` persist only on Ctrl+S (otherwise a one-off pick becomes the TUI's default too).
 

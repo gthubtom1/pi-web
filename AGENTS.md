@@ -244,13 +244,22 @@ hooks/
 
 ---
 
-## Fork, base version and upgrading upstream
+## This project's identity: pi is the upstream
 
-**Whether and how to take an upstream update:** [docs/UPSTREAM-POLICY.md](docs/UPSTREAM-POLICY.md) — two
-upstreams (the pi SDK and `agegr/pi-web`), four gates, `node scripts/upstream-check.mjs` for the facts,
-and the 10-minute runtime acceptance to run afterwards.
+**Install, update, uninstall:** [docs/INSTALL.md](docs/INSTALL.md). This repository is an **independent
+project**; nothing is published to npm. `npx @agegr/pi-web` / `npm install -g @agegr/pi-web` installs the
+*upstream* project — never point a user there. Install is `git clone … && npm install && npm run deploy`;
+`npm run deploy` records the clone in `<agentDir>/pi-web-source.json`, and `pi-web update` compares that
+clone with its remote (git only, no registry).
 
-This repository is a **fork** of `agegr/pi-web`, based on **0.12.2 (`df163cd`)** with `@earendil-works/*` pinned at **1.2.0**.
+**Upgrading:** [docs/UPSTREAM-POLICY.md](docs/UPSTREAM-POLICY.md) — **pi** (`@earendil-works/pi-*`, pinned
+exactly, all seven together) is the upstream we follow; `agegr/pi-web` is a **reference** to read, not a
+merge authority. `node scripts/upstream-check.mjs` prints the pinned-vs-published versions, the reference's
+new commits and the files both sides changed; then run the four gates and the 10-minute runtime acceptance.
+
+The fork is based on `agegr/pi-web` **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.0** with
+`@earendil-works/*` at **1.3.0**. `fork.json` holds that identity (name, repository, install/update
+commands) so it is stated once.
 **A full external audit brief lives in [docs/AUDIT-BRIEF.md](docs/AUDIT-BRIEF.md)** — use it when a change needs a
 whole-project review (coverage matrix, evidence rules, the traps this fork has hit).
 

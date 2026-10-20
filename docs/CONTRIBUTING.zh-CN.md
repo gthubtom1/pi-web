@@ -1,3 +1,17 @@
+# 贡献指南
+
+本仓库是一个**独立项目**（二开之后自行演进）：
+
+- **先读 [`INSTALL.md`](INSTALL.md)** —— 安装、更新、卸载都走这个仓库；npm 上没有本项目的包，
+  任何 `npx @agegr/pi-web` / `npm i -g @agegr/pi-web` 装的都是上游项目，不要再这样引导用户。
+- **动上游也拥有的文件前先读 [`FORK-NOTES.md`](FORK-NOTES.md)** —— 那里列了冲突面与每处改动的用途。
+- **升级 pi SDK 前先读 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)** —— 7 个包一起升，且有验证闸门。
+
+上游 `agegr/pi-web` 只作**参考**：pi 变了、要看看别人怎么适配时去读它的提交，但不要盲目合并，
+也不要再从那安装。
+
+---
+
 # 参与贡献 Pi Web
 
 [English](../CONTRIBUTING.md)
@@ -43,7 +57,7 @@ Pi Web 是 [pi coding agent](https://github.com/earendil-works/pi) 的轻量网�
 - **一个 PR 只做一件事**，不相关的修复请分开提交。
 - **修 bug 时写清楚**如何在 `main` 上复现，以及为什么这个改动修的是根因。
 - **运行检查**：`npm test`、`node_modules/.bin/tsc --noEmit`、`npm run lint`。开发期间不要运行 `next build`（见 [AGENTS.md](../AGENTS.md)）。
-- **新增的界面文字**要同时加上 `en` 和 `zh-CN` 两种语言（[国际化](./i18n.md)）。现在只发布两种；`zh-TW` 已移除。
+- **新增的界面文字**要同时加上 `en` 和 `zh-CN` 两种语言（[国际化](./i18n.md)，两种语言都要加）。现在只发布两种；`zh-TW` 已移除。
 - **阅读相关的专题笔记**：[AGENTS.md](../AGENTS.md) 列出了代码各部分对应的 `docs/agents/` 笔记，改动哪些文件，就读哪些笔记。
 - **尽量不引入新的运行时依赖**；确实需要时请说明理由。
 

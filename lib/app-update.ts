@@ -22,7 +22,10 @@ export function isNewerStableVersion(candidate: string, current: string): boolea
   return false;
 }
 
-export function getPiWebReleaseUrl(version: string): string | null {
-  if (!parseStableVersion(version)) return null;
-  return `https://github.com/agegr/pi-web/releases/tag/v${version}`;
+/**
+ * This fork publishes no releases and no npm package, so there is no release page to
+ * link and no registry version to compare against. Kept for the route's shape.
+ */
+export function getPiWebReleaseUrl(): string | null {
+  return null;
 }

@@ -49,7 +49,7 @@ Commands:
   status                     List running Pi Web servers
   stop [--port <port>]       Stop a running server
   open [--port <port>]       Open a running server in the browser
-  update [--check]           Update a global npm install to the latest version
+  update [--check]           Compare your git clone with its remote (this fork is not on npm)
 
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
@@ -64,7 +64,7 @@ Environment:
   PI_WEB_APP_NAME            PWA manifest name (trimmed; default Pi Web)
   PI_WEB_PASSWORD            Enable browser password login and API Basic Auth
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
-  PI_WEB_SKIP_VERSION_CHECK  Set to 1 to disable Pi Web update checks
+  PI_WEB_SKIP_VERSION_CHECK  Unused by this fork: no npm or registry update check runs at all
   PI_WEB_IDLE_TIMEOUT_MS     Session idle timeout in ms (0 disables; default 600000)
   PI_WEB_SHUTDOWN_DEADLINE_MS  Shutdown wait for extensions in ms (default 5000)
 `;

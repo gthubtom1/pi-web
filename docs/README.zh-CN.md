@@ -29,8 +29,15 @@
 Pi Web 要求 Node.js 22.19.0 或更高版本。先用 `node --version` 检查版本，然后运行：
 
 ```bash
-npx @agegr/pi-web@latest
+git clone https://github.com/gthubtom1/pi-web.git
+cd pi-web
+npm install
+npm run deploy
+pi-web
 ```
+
+> **本项目是独立仓库**：npm 上没有它的包。`npx @agegr/pi-web` / `npm install -g @agegr/pi-web`
+> 装的是**上游作者的项目**，不是这个。完整安装/更新/卸载流程见 [INSTALL.md](INSTALL.md)。
 
 服务就绪后，命令行会尝试自动打开浏览器。如果没有打开，请访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。Pi Web 默认监听 `0.0.0.0`，因此同一局域网内的手机或其他设备也能访问（服务就绪后控制台会打印局域网地址，如 `http://192.168.1.20:30141`）。只想本机访问请加 `--hostname 127.0.0.1`。
 
@@ -39,7 +46,7 @@ npx @agegr/pi-web@latest
 如需全局安装 `pi-web` 命令：
 
 ```bash
-npm install -g @agegr/pi-web@latest
+npm run deploy   # 在克隆目录里，构建并装成全局命令
 pi-web
 ```
 
@@ -110,7 +117,7 @@ macOS 或 Linux：
 HTTP_PROXY=http://127.0.0.1:7890 \
 HTTPS_PROXY=http://127.0.0.1:7890 \
 NO_PROXY=localhost,127.0.0.1 \
-npx @agegr/pi-web@latest
+pi-web
 ```
 
 Windows PowerShell：
@@ -119,7 +126,7 @@ Windows PowerShell：
 $env:HTTP_PROXY = "http://127.0.0.1:7890"
 $env:HTTPS_PROXY = "http://127.0.0.1:7890"
 $env:NO_PROXY = "localhost,127.0.0.1"
-npx @agegr/pi-web@latest
+pi-web
 ```
 
 ## 注意事项

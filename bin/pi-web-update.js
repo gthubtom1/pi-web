@@ -1,17 +1,37 @@
 "use strict";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { execFileSync, spawnSync } = require("child_process");
+const { execFileSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const os = require("os");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 
-const NPM_LATEST_URL = "https://registry.npmjs.org/@agegr%2Fpi-web/latest";
-const FETCH_TIMEOUT_MS = 10_000;
-const MANUAL_COMMAND = "npm install -g @agegr/pi-web@latest";
+/**
+ * `pi-web update` for this fork.
+ *
+ * This project is not published to npm: `@agegr/pi-web` on the registry is the
+ * upstream project, and following it would replace this fork with someone else's
+ * build. So there is no registry call here at all. The source of truth is the git
+ * repository this machine was installed from:
+ *
+ *   - `npm run deploy` records that clone in `<agentDir>/pi-web-source.json`
+ *     (`bin/pi-web-run-*.json` style: one small file, overwritten each deploy);
+ *   - `pi-web update` reads it, fetches, and reports how far behind it is, with the
+ *     exact command to run;
+ *   - `pi-web update --check` does the same without fetching.
+ *
+ * Nothing is installed or replaced from here: a git pull plus `npm run deploy` in
+ * the clone is the whole update, and the user runs it (a build takes minutes and
+ * must not start under a running server).
+ */
 
-// Port of lib/app-update.ts (bin cannot import TypeScript).
+const SOURCE_FILE_NAME = "pi-web-source.json";
+const GIT_TIMEOUT_MS = 60_000;
+const COMMIT_LINES = 12;
+
 function parseStableVersion(version) {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
   if (!match) return null;
@@ -31,118 +51,126 @@ function isNewerStableVersion(candidate, current) {
   return false;
 }
 
-async function fetchLatestVersion() {
-  const response = await fetch(NPM_LATEST_URL, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`npm registry returned HTTP ${response.status}`);
-  const { version } = await response.json();
-  if (typeof version !== "string" || !parseStableVersion(version)) {
-    throw new Error("npm registry returned an invalid version");
+function agentDir() {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  if (configured) {
+    if (configured === "~") return os.homedir();
+    if (configured.startsWith("~/") || configured.startsWith("~\\")) {
+      return path.join(os.homedir(), configured.slice(2));
+    }
+    return configured;
   }
-  return version;
+  return path.join(os.homedir(), ".pi", "agent");
 }
 
-// npm's own CLI script run through this node, so no shell is needed on
-// Windows (same lookup as lib/node-cli.ts). null: no way to run npm safely.
-function findNpmInvocation(args, nodeDir = path.dirname(process.execPath), platform = process.platform, exists = fs.existsSync) {
-  for (const script of [
-    path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
-    path.join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
-  ]) {
-    if (exists(script)) return { command: process.execPath, args: [script, ...args] };
-  }
-  return platform === "win32" ? null : { command: "npm", args };
+function sourceFilePath() {
+  return path.join(agentDir(), SOURCE_FILE_NAME);
 }
 
-function realpathOrSelf(target, realpath = fs.realpathSync) {
+/** The clone this machine was installed from, as recorded by the last deploy. */
+function readSource(filePath = sourceFilePath()) {
   try {
-    return realpath(target);
-  } catch {
-    return path.resolve(target);
-  }
-}
-
-// "global": pkgDir is <npm root -g>/@agegr/pi-web; "npx": an npx cache; else "other".
-function getInstallKind({ pkgDir, npmRoot, realpath = fs.realpathSync }) {
-  const realPkgDir = realpathOrSelf(pkgDir, realpath);
-  if (realPkgDir.split(/[\\/]/).includes("_npx")) return "npx";
-  if (!npmRoot) return "other";
-  const inGlobalRoot =
-    path.basename(realPkgDir) === "pi-web" &&
-    path.basename(path.dirname(realPkgDir)) === "@agegr" &&
-    realpathOrSelf(path.dirname(path.dirname(realPkgDir)), realpath) === realpathOrSelf(npmRoot, realpath);
-  return inGlobalRoot ? "global" : "other";
-}
-
-function getGlobalNpmRoot() {
-  const invocation = findNpmInvocation(["root", "-g"]);
-  if (!invocation) return null;
-  try {
-    return execFileSync(invocation.command, invocation.args, { encoding: "utf8", timeout: 30_000 }).trim();
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const repo = typeof parsed.repo === "string" ? parsed.repo : "";
+    return repo && fs.existsSync(repo) ? { repo, recordedAt: parsed.recordedAt ?? null } : null;
   } catch {
     return null;
   }
 }
 
-function runNpmInstall(version) {
-  const invocation = findNpmInvocation(["install", "-g", `@agegr/pi-web@${version}`]);
-  if (!invocation) return null;
-  const result = spawnSync(invocation.command, invocation.args, { stdio: "inherit" });
-  return result.status ?? 1;
+function git(repo, args, run = execFileSync) {
+  try {
+    return String(run("git", ["-C", repo, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: GIT_TIMEOUT_MS,
+    })).trim();
+  } catch {
+    return "";
+  }
 }
 
-async function runUpdate({
+/** How the recorded clone stands against its own remote. */
+function readGitState(repo, { check, gitRun = git, fileExists = fs.existsSync } = {}) {
+  if (!repo || !fileExists(path.join(repo, ".git"))) return { kind: "no-git", repo: repo ?? null };
+  const branch = gitRun(repo, ["rev-parse", "--abbrev-ref", "HEAD"]) || "main";
+  const remote = gitRun(repo, ["remote", "get-url", "origin"]);
+  if (check) {
+    return { kind: "check", repo, branch, remote, behind: null, ahead: null, commits: [] };
+  }
+  const fetched = gitRun(repo, ["fetch", "--quiet", "origin"]);
+  if (fetched === "" && gitRun(repo, ["rev-parse", "--verify", "--quiet", `origin/${branch}`]) === "") {
+    return { kind: "no-remote", repo, branch, remote };
+  }
+  const counts = gitRun(repo, ["rev-list", "--left-right", "--count", `HEAD...origin/${branch}`]);
+  const [ahead, behind] = counts.split(/\s+/).map((value) => Number(value) || 0);
+  const commits = behind > 0
+    ? gitRun(repo, ["log", "--oneline", "--no-decorate", `HEAD..origin/${branch}`]).split("\n").filter(Boolean)
+    : [];
+  return { kind: "git", repo, branch, remote, ahead, behind, commits };
+}
+
+function runUpdate({
   check,
   currentVersion,
-  pkgDir,
-  listRecords,
-  formatRecord,
-  fetchLatest = fetchLatestVersion,
-  getNpmRoot = getGlobalNpmRoot,
-  install = runNpmInstall,
-  realpath = fs.realpathSync,
+  readSourceFile = readSource,
+  readState = readGitState,
   log = console.log,
   error = console.error,
 }) {
-  let latest;
-  try {
-    latest = await fetchLatest();
-  } catch (fetchError) {
-    error(`Could not check for updates: ${fetchError.message}`);
-    return 1;
-  }
-  if (!isNewerStableVersion(latest, currentVersion)) {
-    log(`pi-web ${currentVersion} is up to date.`);
+  const source = readSourceFile();
+  if (!source) {
+    log(`pi-web fork ${currentVersion}: this build was not installed from a git clone, so there is nothing to check.`);
+    log("Install it from its repository (docs/INSTALL.md):");
+    log("  git clone <repository> && cd pi-web && npm install && npm run deploy");
+    log("Then `pi-web update` can compare your clone with its remote.");
     return 0;
   }
-  log(`pi-web ${latest} is available (installed: ${currentVersion}).`);
-  if (check) return 0;
 
-  // A running `next start` has .next/ open; never replace it underneath.
-  const running = await listRecords();
-  if (running.length > 0) {
-    error(`pi-web is running:\n${running.map(formatRecord).join("\n")}\nRun \`pi-web stop\` first, then update.`);
+  const state = readState(source.repo, { check });
+  if (state.kind === "no-git") {
+    error(`The recorded source ${source.repo} is not a git checkout any more. Reinstall from its repository.`);
     return 1;
   }
+  const updateCommand = `git -C "${state.repo}" pull --ff-only && npm -C "${state.repo}" run deploy`;
 
-  const kind = getInstallKind({ pkgDir, npmRoot: getNpmRoot(), realpath });
-  if (kind === "npx") {
-    error("This pi-web runs from the npx cache. Run `npx @agegr/pi-web@latest` instead.");
-    return 1;
+  if (state.kind === "check") {
+    log(`Source: ${state.repo} (branch ${state.branch}${state.remote ? `, origin ${state.remote}` : ""})`);
+    log("Run `pi-web update` to compare it with its remote.");
+    return 0;
   }
-  if (kind !== "global") {
-    error(`This pi-web is not a global npm install. Update it yourself, for example: ${MANUAL_COMMAND}`);
+  if (state.kind === "no-remote") {
+    error(`Could not read origin/${state.branch} in ${state.repo}. Run \`git -C "${state.repo}" fetch\` once, then retry.`);
     return 1;
   }
 
-  const code = install(latest);
-  if (code === null) {
-    error(`Could not find npm. Run: ${MANUAL_COMMAND}`);
-    return 1;
+  log(`Source: ${state.repo} (branch ${state.branch}${state.remote ? `, origin ${state.remote}` : ""})`);
+  if (state.behind === 0) {
+    log(state.ahead > 0
+      ? `Up to date with origin/${state.branch}; your clone has ${state.ahead} local commit(s) on top.`
+      : `Up to date with origin/${state.branch}.`);
+    return 0;
   }
-  return code;
+
+  log(`${state.behind} new commit(s) on origin/${state.branch}:`);
+  for (const commit of state.commits.slice(0, COMMIT_LINES)) log(`  ${commit}`);
+  if (state.commits.length > COMMIT_LINES) log(`  … ${state.commits.length - COMMIT_LINES} more`);
+  if (check) {
+    log(`Run: ${updateCommand}`);
+    return 0;
+  }
+  log("");
+  log("This build is installed globally, so the update runs in the clone above:");
+  log(`  ${updateCommand}`);
+  log("(`pi-web stop` first if a server is running: the build replaces .next.)");
+  return 0;
 }
 
-module.exports = { findNpmInvocation, getInstallKind, isNewerStableVersion, runUpdate };
+module.exports = {
+  SOURCE_FILE_NAME,
+  isNewerStableVersion,
+  readGitState,
+  readSource,
+  runUpdate,
+  sourceFilePath,
+};

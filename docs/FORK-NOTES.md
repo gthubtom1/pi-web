@@ -1,8 +1,9 @@
 # 这个仓库是怎么来的：上游基线 + 我们的改动 + 升级流程
 
-> 一句话：这是 [`agegr/pi-web`](https://github.com/agegr/pi-web) 的 **fork**，基线是
-> **0.12.2 / commit `df163cd`**，在上面加了 5 组功能。本文件是给"人"和"以后的智能体"看的
-> 对照表与升级手册：**我们改了什么、改了哪些上游文件、上游更新时怎么安全跟进**。
+> 一句话：这是从 [`agegr/pi-web`](https://github.com/agegr/pi-web) **0.12.2 / `df163cd`** 分叉出来的
+> **独立项目**（包名 `pi-web-fork`），在上面加了若干组功能。**pi 才是我们要跟的上游**；原作者的仓库
+> 现在只作参考（见 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)）。本文件是给"人"和"以后的智能体"看的
+> 对照表：**我们改了什么、动了哪些上游文件、装/升级走哪条路**。
 
 ---
 
@@ -10,18 +11,18 @@
 
 | 项 | 值 |
 | --- | --- |
-| 自己的仓库（`origin`） | `https://github.com/gthubtom1/pi-web.git`（GitHub 上的 fork，我们的提交在这里） |
-| 上游仓库（`upstream`） | `https://github.com/agegr/pi-web.git`（原作者仓库） |
-| 上游版本 | `@agegr/pi-web` **0.12.2** |
-| 基线 commit | **`df163cd`** — `feat(models): match provider ids in the model and Add provider searches (#1308)` |
-| 本仓库版本 | `package.json` 已改为 **0.13.0**（我们的第一个成品版本号） |
-| pi SDK | `@earendil-works/*` **1.2.0**（与上游 0.12.2 完全一致的精确 pin，**不要随手升级**） |
-| Node | `>= 22.19.0`（开发机实测 Node 24.20） |
+| 自己的仓库（`origin`，唯一事实源） | `https://github.com/gthubtom1/pi-web.git` |
+| 本仓库包名 / 版本 | `pi-web-fork` **0.13.0**（`fork.json` 是唯一出处） |
+| 安装 / 更新 | **只从这里**：`git clone … && npm install && npm run deploy`，之后 `pi-web update`（走 git，不走 npm）。见 [`INSTALL.md`](INSTALL.md) |
+| 参考仓库（`upstream`） | `https://github.com/agegr/pi-web.git` —— **只读参考，不合并、不从它安装** |
+| 分叉基线 | `0.12.2` / commit **`df163cd`** |
+| **上游（要跟的）** | **pi**：`@earendil-works/*` **1.3.0**（7 个包一起升，`--save-exact`；流程见 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md)） |
+| Node | `>= 22.19.0`（开发机实测 Node 24.x） |
 
-**为什么 SDK 钉死 1.2.0**：pi-web 的 `package.json` 用 `--save-exact` 钉住 `@earendil-works/pi-*`
-的每一个包；这些包互相用 `^` 引用，npm 安装时会重新解析。任何一个没钉住的包都可能让
-`pi-coding-agent 1.2.0` 和 `pi-codemode 1.3.0` 这类组合出现（上游曾经踩过）。
-`lib/pi-packages.test.mjs` 会检查这件事。**升级 SDK 是一个独立任务**，要整包一起升 + 全量回归，
+**为什么 SDK 钉死版本**：`package.json` 用 `--save-exact` 钉住 `@earendil-works/pi-*` 的每一个包；
+这些包互相用 `^` 引用，npm 安装时会重新解析。任何一个没钉住的包都可能让 `pi-coding-agent 1.3.0`
+和 `pi-codemode` 别的版本这种组合出现（上游曾经踩过）。`lib/pi-packages.test.mjs` 会检查这件事。
+**升级 SDK 是一个独立任务**：7 个包一起升 + 走 [`UPSTREAM-POLICY.md`](UPSTREAM-POLICY.md) 的四道闸门，
 不能顺手改。
 
 ---

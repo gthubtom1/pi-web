@@ -2,14 +2,16 @@
 /**
  * What an upstream update would cost us, before we take it.
  *
- * Two upstreams move independently and each answers a different question:
+ * ONE upstream moves this project, and one other repository is only a reference:
  *
- *   pi       (@earendil-works/pi-*)   the agent core and SDK. Pinned exactly (see
- *                                      AGENTS.md); a new version can change the
- *                                      extension API, tool naming, session file
- *                                      format and the defaults we read.
- *   pi-web   (the fork's upstream)     the web UI. Its commits are the merge
- *                                      surface recorded in docs/FORK-NOTES.md §3.
+ *   pi       (@earendil-works/pi-*)   THE upstream. Pinned exactly (AGENTS.md); a new
+ *                                      version can change the extension API, tool
+ *                                      naming, session file format and the defaults
+ *                                      we read. This is what we follow.
+ *   pi-web   (`upstream` remote)       the project this one was forked from. Read its
+ *                                      commits for how someone else adapted to the
+ *                                      same pi; do NOT merge it as an authority and
+ *                                      never install from it (docs/UPSTREAM-POLICY.md).
  *
  * This script answers, with local git state and `npm view` only:
  *
@@ -160,7 +162,7 @@ if (!upstreamRef) {
   line("pi-web upstream: no `upstream` remote. Add it with");
   line("  git remote add upstream https://github.com/agegr/pi-web.git");
 } else {
-  line(`pi-web upstream (${upstreamRef}), base ${report.upstream.base}:`);
+  line(`reference repository (${upstreamRef}), base ${report.upstream.base} — for reading, not merging:`);
   if (upstreamCommits.length === 0) {
     const tip = upstreamRef ? git("rev-parse", upstreamRef) : "";
     line(tip && tip === report.upstream.base
@@ -171,13 +173,13 @@ if (!upstreamRef) {
     if (upstreamCommits.length > 20) line(`  … ${upstreamCommits.length - 20} more`);
   }
   line();
-  line(`conflict surface (${shared.length} file(s) we changed that upstream also changed):`);
+  line(`files both sides changed (${shared.length}) — read these when the reference takes a fix we want:`);
   if (shared.length === 0) line("  none");
   for (const file of shared.slice(0, 25)) line(`  ${file}`);
   if (shared.length > 25) line(`  … ${shared.length - 25} more`);
 }
 line();
-line("next steps: docs/FORK-NOTES.md §4 (branch, merge, then rerun the baseline diff):");
+line("next steps: docs/UPSTREAM-POLICY.md (pi is the upstream; four gates, then this):");
 line("  git worktree add ../baseline HEAD   # before merging");
 line("  npm test 2>&1 | tee /tmp/before.log # in the worktree");
 line("  … merge, then rerun and compare the failing sets, not just the counts.");

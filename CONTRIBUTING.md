@@ -1,3 +1,19 @@
+# Contributing
+
+This repository is an independent project (a fork that now evolves on its own). Please:
+
+- **Read [`docs/INSTALL.md`](docs/INSTALL.md)** — install, update and uninstall all go through *this*
+  repository. Nothing here is published to npm, so never point anyone at the upstream package.
+- **Read [`docs/FORK-NOTES.md`](docs/FORK-NOTES.md)** before touching a file upstream also owns: it lists
+  the conflict surface and what each of our changes is for.
+- **Read [`docs/UPSTREAM-POLICY.md`](docs/UPSTREAM-POLICY.md)** before taking a pi SDK update: the pinned
+  versions move together, and there is a verification gate to run.
+
+Upstream (`agegr/pi-web`) is a **reference**, not the source of truth: read its commits when pi changes and
+we need to see how someone else adapted, but do not merge it blindly and never reinstall from it.
+
+---
+
 # Contributing to Pi Web
 
 [中文](./docs/CONTRIBUTING.zh-CN.md)

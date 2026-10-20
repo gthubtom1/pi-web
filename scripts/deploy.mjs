@@ -11,11 +11,16 @@
  *      NODE_USE_ENV_PROXY makes the build's fetch honor HTTPS_PROXY, so this
  *      script finds the proxy the same way the tunnel does.
  *
+ * It also records this clone in `<agentDir>/pi-web-source.json`, which is what
+ * `pi-web update` compares against its remote: this fork has no npm package, so the
+ * git clone is the only update channel there is.
+ *
  * Usage: npm run deploy [-- --skip-install]
  */
 import { spawn, spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { connect } from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -86,6 +91,32 @@ if (!existsSync(join(repoRoot, ".next", "BUILD_ID"))) {
   process.exit(1);
 }
 
+// Record the clone before installing: `pi-web update` reads this file to know which
+// repository to fetch and compare, and to print the exact update command.
+function resolveAgentDir(env = process.env) {
+  const configured = env.PI_CODING_AGENT_DIR;
+  if (!configured) return join(homedir(), ".pi", "agent");
+  if (configured === "~") return homedir();
+  if (configured.startsWith("~/") || configured.startsWith("~\\")) {
+    return join(homedir(), configured.slice(2));
+  }
+  return configured;
+}
+
+const agentDir = resolveAgentDir();
+try {
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(
+    join(agentDir, "pi-web-source.json"),
+    `${JSON.stringify({ repo: repoRoot, recordedAt: new Date().toISOString() }, null, 2)}
+`,
+    { encoding: "utf-8", mode: 0o600 },
+  );
+  console.log(`[deploy] recorded source clone: ${repoRoot}`);
+} catch (error) {
+  console.warn(`[deploy] could not record the source clone (${error.message}); \`pi-web update\` will have nothing to compare.`);
+}
+
 if (skipInstall) {
   console.log("[deploy] --skip-install: left the global command alone");
   process.exit(0);
@@ -93,7 +124,7 @@ if (skipInstall) {
 
 const install = await run(process.platform === "win32" ? "npm.cmd" : "npm", ["install", "-g", ".", "--no-fund", "--no-audit"]);
 if (install.code !== 0) {
-  console.error(`[deploy] global install failed (${install.seconds}s). Try: npm install -g . --allow-scripts=@agegr/pi-web`);
+  console.error(`[deploy] global install failed (${install.seconds}s). Try: npm install -g . --allow-scripts=pi-web-fork`);
   process.exit(install.code);
 }
 const version = spawnSync(process.platform === "win32" ? "pi-web.cmd" : "pi-web", ["version"], { encoding: "utf-8", shell: process.platform === "win32" });

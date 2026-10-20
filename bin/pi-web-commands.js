@@ -103,9 +103,6 @@ async function runCommand(options, {
       return runUpdate({
         check: options.check,
         currentVersion: getPackageVersion(pkgDir),
-        pkgDir,
-        listRecords: list,
-        formatRecord: records.formatRunRecord,
         log,
         error,
       });
