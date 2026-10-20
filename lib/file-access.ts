@@ -42,10 +42,12 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
  * served by the file API.
  *
  * The allowed roots are the sessions' cwds, so a session opened in the home
- * directory (a normal thing to do) puts the whole agent dir in reach - including
- * the named tunnel's token and the pairing secrets, which the rest of the UI takes
- * care never to send to the browser (`/api/remote` answers `hasToken`, nothing
- * more). Without this list that care is undone by one `?type=read`.
+ * directory (a normal thing to do) puts the whole agent dir in reach - including the
+ * pairing secrets, the cookie-signing key and pi's provider credentials, which the
+ * rest of the UI takes care never to send to the browser. Without this list that
+ * care is undone by one `?type=read`. (`pi-web-tunnel.json` stays on it although the
+ * named-tunnel token it once held is gone: a file written by an older version still
+ * has that token in it until the next write.)
  */
 const AGENT_CREDENTIAL_FILE_NAMES: ReadonlySet<string> = new Set([
   "pi-web-tunnel.json",

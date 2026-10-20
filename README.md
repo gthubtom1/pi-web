@@ -33,7 +33,7 @@ command and compiles nothing** (`.next` is already inside it):
 
 ```bash
 npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
-  https://github.com/gthubtom1/pi-web/releases/download/v0.13.0/pi-web-fork-0.13.0.tgz
+  https://github.com/gthubtom1/pi-web/releases/download/v0.13.1/pi-web-fork-0.13.1.tgz
 pi-web
 ```
 

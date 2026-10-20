@@ -29,6 +29,15 @@ const path = require("path");
  */
 
 const SOURCE_FILE_NAME = "pi-web-source.json";
+// Shipped with the package (package.json `files`), so an installed copy can name its
+// own repository without reaching the network.
+let forkInfo = {};
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  forkInfo = require("../fork.json");
+} catch {
+  forkInfo = {};
+}
 const GIT_TIMEOUT_MS = 60_000;
 const COMMIT_LINES = 12;
 
@@ -120,10 +129,13 @@ function runUpdate({
 }) {
   const source = readSourceFile();
   if (!source) {
-    log(`pi-web fork ${currentVersion}: this build was not installed from a git clone, so there is nothing to check.`);
-    log("Install it from its repository (docs/INSTALL.md):");
-    log("  git clone <repository> && cd pi-web && npm install && npm run deploy");
-    log("Then `pi-web update` can compare your clone with its remote.");
+    // A prebuilt install (the release tarball, docs/INSTALL.md §A): no clone to compare.
+    const releases = forkInfo.repository ? `${forkInfo.repository}/releases` : "its releases page";
+    log(`pi-web fork ${currentVersion}: installed from a prebuilt package, so there is no clone to compare.`);
+    log(`Update by installing the newest release from ${releases}`);
+    log(`  npm install -g ${releases.replace(/\/releases$/, "/releases/download")}/<tag>/<tarball>.tgz`);
+    log("Or install from source (docs/INSTALL.md §B): git clone … && npm install && npm run deploy,");
+    log("after which `pi-web update` compares that clone with its remote.");
     return 0;
   }
 

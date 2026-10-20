@@ -1,6 +1,6 @@
 {
   "name": "pi-web-fork",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Web UI for the pi coding agent",
   "homepage": "https://github.com/gthubtom1/pi-web#readme",
   "repository": {
@@ -35,6 +35,7 @@
     "!.next/types",
     "public",
     "lib/ws-protocol.cjs",
+    "fork.json",
     "next.config.ts",
     "package.json"
   ],

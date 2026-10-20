@@ -257,7 +257,15 @@ exactly, all seven together) is the upstream we follow; `agegr/pi-web` is a **re
 merge authority. `node scripts/upstream-check.mjs` prints the pinned-vs-published versions, the reference's
 new commits and the files both sides changed; then run the four gates and the 10-minute runtime acceptance.
 
-The fork is based on `agegr/pi-web` **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.0** with
+**Releases:** `npm run release:tarball -- --publish` builds, packs the prebuilt artifact (the
+`files` whitelist keeps it ~6 MB by excluding `.next/**/*.nft.json` tracing data) and uploads it to a
+GitHub Release; installing that tarball needs no build. Bump `package.json`'s version and the two
+release URLs in `README.md` / `docs/INSTALL.md` together.
+
+Scripts worth knowing: `scripts/deploy.mjs` (build + global install + record the clone),
+`scripts/upstream-check.mjs` (the facts for an upgrade), `scripts/release-tarball.mjs` (the release).
+
+The fork is based on `agegr/pi-web` **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.1** with
 `@earendil-works/*` at **1.3.0**. `fork.json` holds that identity (name, repository, install/update
 commands) so it is stated once.
 **A full external audit brief lives in [docs/AUDIT-BRIEF.md](docs/AUDIT-BRIEF.md)** — use it when a change needs a
