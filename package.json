@@ -52,7 +52,8 @@
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
     "deploy": "node scripts/deploy.mjs",
-    "release:tarball": "node scripts/release-tarball.mjs"
+    "release:tarball": "node scripts/release-tarball.mjs",
+    "check:repo": "node scripts/check-repo.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.3.0",
