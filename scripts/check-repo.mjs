@@ -139,11 +139,24 @@ for (const file of markdown) {
 
 // ---------------------------------------------------------------- 5. shipped files vs the release tag
 const shipped = ["bin", "lib/ws-protocol.cjs", "public", "next.config.ts", "package.json", "fork.json"];
+/** package.json fields that reach the artifact; a dev-only `scripts` entry does not. */
+const ARTIFACT_FIELDS = ["name", "version", "description", "bin", "files", "engines", "dependencies", "peerDependencies", "optionalDependencies"];
 const tag = git("describe", "--tags", "--abbrev=0");
 if (tag) {
   const changed = git("diff", "--name-only", `${tag}..HEAD`, "--", ...shipped).split("\n").filter(Boolean);
-  if (changed.length === 0) notes.push(`发布产物 ${tag} 与当前源码一致（${shipped.join(", ")} 自该 tag 起无改动）`);
-  else for (const file of changed) problems.push(`会打进包的文件在 ${tag} 之后改过，需要重新发布：${file}`);
+  const needsRelease = changed.filter((file) => {
+    if (file !== "package.json") return true;
+    const before = git("show", `${tag}:package.json`);
+    const after = git("show", "HEAD:package.json");
+    try {
+      const pick = (text) => JSON.stringify(Object.fromEntries(ARTIFACT_FIELDS.map((field) => [field, JSON.parse(text)[field]])));
+      return pick(before) !== pick(after);
+    } catch {
+      return true;
+    }
+  });
+  if (needsRelease.length === 0) notes.push(`发布产物 ${tag} 与当前源码一致（打进包的文件自该 tag 起未变）`);
+  else for (const file of needsRelease) problems.push(`会打进包的文件在 ${tag} 之后改过，需要重新发布：${file}`);
 } else {
   notes.push("没有 tag，跳过发布产物比对");
 }

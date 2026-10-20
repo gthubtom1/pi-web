@@ -17,6 +17,7 @@ npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
 git switch main
 git pull --ff-only
 git status --short            # 必须为空
+node scripts/check-repo.mjs   # 交付检查：链接/文件地图/i18n/过期说法/产物一致性
 node_modules/.bin/tsc --noEmit
 npm run lint
 npm test 2>&1 | tail -3       # 与基线的失败集合比对，不看总数

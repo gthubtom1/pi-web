@@ -263,7 +263,9 @@ GitHub Release; installing that tarball needs no build. Bump `package.json`'s ve
 release URLs in `README.md` / `docs/INSTALL.md` together.
 
 Scripts worth knowing: `scripts/deploy.mjs` (build + global install + record the clone),
-`scripts/upstream-check.mjs` (the facts for an upgrade), `scripts/release-tarball.mjs` (the release).
+`scripts/upstream-check.mjs` (the facts for an upgrade), `scripts/release-tarball.mjs` (the release),
+`scripts/check-repo.mjs` (the delivery gate: internal links, the file map, i18n keys, stale claims,
+shipped-vs-tag diff, followable upstream addresses — run it before saying "done").
 
 The fork is based on the open-source Pi Web **0.12.2 (`df163cd`)**; our package is `pi-web-fork` **0.13.1** with
 `@earendil-works/*` at **1.3.0**. `fork.json` holds that identity (name, repository, install/update
