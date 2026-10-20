@@ -39,8 +39,10 @@ function run(commandLine) {
 }
 
 if (!skipBuild) {
-  // The build script picks its own heap (PI_WEB_BUILD_HEAP_MB); this wrapper just runs it.
-  run("npm run build");
+  // Build through deploy.mjs: it is the one place that knows the heap this machine needs
+  // (PI_WEB_BUILD_HEAP_MB, default 9216 MB) and the proxy the Google-Fonts fetch needs.
+  // `next build` on its own dies at Node's default heap, as 0.13.2's first attempt did.
+  run("node scripts/deploy.mjs --skip-install");
 } else if (!existsSync(join(repoRoot, ".next", "BUILD_ID"))) {
   console.error("[release] --skip-build was given but .next/BUILD_ID is missing: build first.");
   process.exit(1);

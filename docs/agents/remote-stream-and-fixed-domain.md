@@ -17,14 +17,14 @@
       `cloudflared tunnel --no-autoupdate run`，**token 走 `TUNNEL_TOKEN` 环境变量**（不上命令行，
       不进 `ps`、不进日志）；主机名从配置读，运行时只把这一个域名加进 `lib/dynamic-hosts.ts` 白名单
 - [x] **C2** `~/.pi/agent/pi-web-tunnel.json`（0600，`{ version, mode, token, hostname, autoStart }`）
-      读写：`lib/tunnel-config.ts`（落盘）+ `lib/tunnel-config-view.ts`（纯校验，客户端可 import）。
+      读写：`lib/tunnel-config.ts`（落盘）+ `lib/tunnel-config-view.ts`（纯校验，客户端可 import；**已随固定域名一起删除**）。
       token 不落日志、不回前端（只回 `hasToken`）；文件损坏/无凭据一律退回 `quick`
 - [x] **C3** `/api/remote`：`tunnel-config-save` / `tunnel-config-clear` / `tunnel-autostart` 三个动作；
       会替换凭据或改动在线隧道公网地址的写入**必须 `confirm: true`**，否则 `409 { needsConfirm }`；
       `GET` 只回 `tunnelConfig.hasToken`；保存后在线隧道按新模式重启，旧域名立即从白名单移除
 - [x] **C4** 设置 › 远程访问 ›「公网隧道（Cloudflare）」：当前地址 + 复制 + 「别用浏览器历史」提示；
       快速隧道 / 固定域名二选一；token（`type=password`，留空=不改）+ 域名 + 保存（二次确认）/ 清空（二次确认）；
-      启停/测一下/卸载；「随 pi-web 自启」开关。三语文案已补齐（`lib/i18n/registry.test.mjs` 键集合校验通过）
+      启停/测一下/卸载；「随 pi-web 自启」开关。文案当时补齐了三语；**现在只发 en + zh-CN**（`zh-TW` 已删除，键集合由 `lib/i18n/registry.test.mjs` 校验）
 - [x] **B1** 隧道保活：**曾经跑起来**的 tunnel 退出后按指数退避重启（1s 起翻倍，封顶 30s，
       `restarts` 计数），地址与白名单随之恢复；从未成功的失败留在 `error` 不空转；
       `stopTunnel()` 清「想让它跑」的意图，`installTunnelShutdownHook()` 随进程退出杀掉子进程

@@ -55,7 +55,7 @@
 - 设置 › **远程访问**（独立 Tab）：局域网 / Tailscale 地址、一次性扫码登录（2 分钟 token，
   二维码里不含密码）、Cloudflare quick tunnel（自动下载 cloudflared、自动探测本机代理、可卸载）、
   「登录需要密码」开关（Windows 关鉴权只能靠它，写 `<agentDir>/pi-web-auth.json`）。
-- 新增文件：`lib/web-secret.ts`、`lib/pairing.ts`、`lib/tunnel.ts`、`lib/local-proxy.ts`、
+- 新增文件：`lib/web-secret.ts`、`lib/remote-pairing.ts`、`lib/tunnel.ts`、`lib/local-proxy.ts`、
   `lib/dynamic-hosts.ts`、`lib/remote-access.ts`、`lib/agent-dir.ts`、`app/api/remote/`、
   `app/api/web-auth/pair/`、`components/RemoteAccessSection.tsx`、`components/QrCode.tsx`。
 - 改的上游文件：`lib/web-auth.ts`、`proxy.ts`、`app/api/web-auth/route.ts`、`app/login/page.tsx`、
@@ -101,7 +101,7 @@
 - 新增文件：`bin/pi-web-server.js`、`lib/ws-protocol.cjs`、`lib/agent-event-transport.ts`、
   `lib/tunnel-config.ts`、`lib/realtime-settings.ts`、
   `app/api/realtime/`；测试：`lib/ws-protocol.test.mjs`、`lib/agent-event-transport.test.mjs`、
-  `lib/tunnel-config.test.mjs`、`lib/tunnel-named.test.mjs`、`lib/realtime-settings.test.mjs`。
+  `lib/tunnel-config.test.mjs`、`lib/realtime-settings.test.mjs`。（`lib/tunnel-named.test.mjs` 随固定域名一起删除。）
 - 改的上游文件：`bin/pi-web.js`（改成 spawn 自建 server，传 `PI_WEB_PORT`）、`lib/tunnel.ts`（模式/保活/
   自启）、`app/api/remote/route.ts`、`components/RemoteAccessSection.tsx`、`components/SettingsPanel.tsx`、
   `hooks/useAgentSession.ts`（传输工厂 + 静默轮询）、`instrumentation-node.ts`（自启 + 退出清理）、

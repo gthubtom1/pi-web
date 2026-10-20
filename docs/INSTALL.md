@@ -32,7 +32,7 @@ Windows 上**不要**用 `npx`，也不要装成别的名字：全局命令就�
 
 ```bash
 npm install -g --allow-scripts=pi-web-fork,node-pty,@google/genai,protobufjs \
-  https://github.com/gthubtom1/pi-web/releases/download/v0.13.1/pi-web-fork-0.13.1.tgz
+  https://github.com/gthubtom1/pi-web/releases/download/v0.13.2/pi-web-fork-0.13.2.tgz
 pi-web
 ```
 
